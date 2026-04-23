@@ -15,6 +15,7 @@
 	import AnsiToHtml from 'ansi-to-html';
 	import { getStringForEnum } from '$lib/utils';
 	import { wsClient } from '$lib/stores/websocket.svelte';
+	import Completions  from '$lib/utils/completions';
 
 	// Create ansi-to-html converter with proper options
 	const ansiConverter = new AnsiToHtml({
@@ -43,6 +44,8 @@
 
 	// Track previous server ID
 	let previousServerId = server.id;
+
+	let completions: Completions | undefined = undefined;
 
 	onDestroy(() => {
 		untrack(() => cleanupWebSocket());
@@ -175,6 +178,26 @@
 				: logs;
 		} catch (error) {
 			console.error('Failed to fetch logs:', error);
+		}
+	}
+
+	async function handleInput() {
+		if(!completions && server.status === ServerStatus.RUNNING){
+			fetchCompletions()
+		}
+		if(completions){
+			console.log(completions.getPossibleCompletions(command));
+		}
+	}
+
+	async function fetchCompletions() {
+		const request = create(SendCommandRequestSchema, {
+			id: server.id,
+			command: 'help'
+		});
+		const response = await rpcClient.server.sendCommand(request);
+		if(response.success){
+			completions = new Completions(response.output);
 		}
 	}
 
@@ -389,6 +412,7 @@
 					bind:value={command}
 					disabled={server.status !== ServerStatus.RUNNING && server.status !== ServerStatus.UNHEALTHY}
 					onkeydown={(e) => e.key === 'Enter' && sendCommand()}
+					oninput={handleInput}
 					class="flex-1 bg-transparent font-mono text-sm text-white outline-none placeholder:text-zinc-600"
 				/>
 			</div>
