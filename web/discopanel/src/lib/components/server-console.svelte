@@ -16,6 +16,7 @@
 	import { getStringForEnum } from '$lib/utils';
 	import { wsClient } from '$lib/stores/websocket.svelte';
 	import Completions  from '$lib/utils/completions';
+	import { Command, CommandItem, CommandList } from './ui/command';
 
 	// Create ansi-to-html converter with proper options
 	const ansiConverter = new AnsiToHtml({
@@ -181,26 +182,6 @@
 		}
 	}
 
-	async function handleInput() {
-		if(!completions && server.status === ServerStatus.RUNNING){
-			fetchCompletions()
-		}
-		if(completions){
-			console.log(completions.getPossibleCompletions(command));
-		}
-	}
-
-	async function fetchCompletions() {
-		const request = create(SendCommandRequestSchema, {
-			id: server.id,
-			command: 'help'
-		});
-		const response = await rpcClient.server.sendCommand(request);
-		if(response.success){
-			completions = new Completions(response.output);
-		}
-	}
-
 	async function sendCommand() {
 		if (!command.trim()) return;
 
@@ -289,6 +270,77 @@
 			default: return 'text-zinc-500';
 		}
 	}
+
+
+	// Command Completion
+
+  	let open = $state(false);
+	let suggestions = $state<string[]>([]);
+
+
+	async function updateSuggestions() {
+		if(!completions && server.status === ServerStatus.RUNNING){
+			fetchCompletions()
+		}
+		if(completions){
+			suggestions = completions.getPossibleCompletions(command);
+		}
+		
+	}
+
+	async function fetchCompletions() {
+		const request = create(SendCommandRequestSchema, {
+			id: server.id,
+			command: 'help'
+		});
+		const response = await rpcClient.server.sendCommand(request);
+		if(response.success){
+			completions = new Completions(response.output);
+		}
+	}
+	
+
+  	function applyCompletion(suggestion: string) {
+		if(command.split(' ').length <= 1){
+			command = suggestion + " ";
+  	  		open = true;
+			updateSuggestions()
+		} else {
+			const parts = command.split(' ');
+			let newCommand = parts.slice(0, -1).concat(suggestion).join(' ') + "";
+			command = newCommand;
+  	  		open = true;
+			updateSuggestions()
+
+		}
+  	  	
+  	}
+
+	function keyDown(e: KeyboardEvent) {
+		if (e.key === 'Enter') {
+			sendCommand();
+			suggestions = [];
+			open = false;
+		} else if (e.key === 'Tab') {
+			e.preventDefault();
+			if (suggestions.length > 0) {
+				applyCompletion(suggestions[0]);
+			}
+		} else {
+			open = true;
+		}
+
+	}
+
+	async function onFocus() {
+		open = true; 
+		if(!completions){
+			await fetchCompletions();
+		}
+		updateSuggestions();
+	}
+
+
 </script>
 
 <ResizablePaneGroup
@@ -404,15 +456,34 @@
 
 	<div class="flex flex-col bg-zinc-950">
 		<div class="flex shrink-0 gap-2 border-t border-zinc-800 p-3">
+
+			<div class="w-96 space-y-1 relative combobox">
+
+  <!-- 🔹 Dropdown -->
+  {#if open && suggestions.length > 0}
+    <div class="absolute w-full z-50 mt-1 rounded-md border bg-popover shadow-md">
+      <Command>
+        <CommandList>
+          {#each suggestions as s}
+            <CommandItem onclick={() => applyCompletion(s)}>
+              {s}
+            </CommandItem>
+          {/each}
+        </CommandList>
+      </Command>
+    </div>
+  {/if}
+</div>
 			<div class="flex flex-1 items-center gap-2">
 				<span class="font-mono text-sm text-green-500">$</span>
 				<input
+    				onfocus={onFocus}
 					type="text"
 					placeholder={(server.status === ServerStatus.RUNNING || server.status === ServerStatus.UNHEALTHY)? 'Enter command...' : 'Server must be running'}
 					bind:value={command}
 					disabled={server.status !== ServerStatus.RUNNING && server.status !== ServerStatus.UNHEALTHY}
-					onkeydown={(e) => e.key === 'Enter' && sendCommand()}
-					oninput={handleInput}
+					onkeydown={keyDown}
+					oninput={updateSuggestions}
 					class="flex-1 bg-transparent font-mono text-sm text-white outline-none placeholder:text-zinc-600"
 				/>
 			</div>
