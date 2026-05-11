@@ -10,7 +10,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Badge } from '$lib/components/ui/badge';
 	import { toast } from 'svelte-sonner';
-	import { Terminal, Send, Loader2, Download, Upload, Trash2, RefreshCw, Wifi, WifiOff } from '@lucide/svelte';
+	import { Terminal, Send, Loader2, Download, Upload, Trash2, RefreshCw, Wifi, WifiOff, Bubbles } from '@lucide/svelte';
 	import * as Tooltip from '$lib/components/ui/tooltip/index.js';
 	import AnsiToHtml from 'ansi-to-html';
 	import { compareVersions, getStringForEnum } from '$lib/utils';
@@ -283,12 +283,31 @@
 	let forceDisabled = $state(false);
 	let enabled = $state(false);
   	let open = $state(false);
-	let suggestions = $state<string[]>([]);
-	let activeSuggestionIndex = $state(-1);
-	let suggestionItemRefs = $state<(HTMLElement | null)[]>([]);
+	type SuggestionItem = {
+		value: string;
+		ref: HTMLElement | null;
+	};
 
-	let commandDropdown: HTMLElement | null = $state(null);
-	let commandInput: HTMLInputElement | null = $state(null);
+	let suggestions = $state<SuggestionItem[]>([]);
+	let activeSuggestionIndex = $state(-1);
+
+	let commandDropdown = $state<HTMLElement | null>(null);
+	let commandInput = $state<HTMLInputElement | null>(null);
+
+	const mappings = {
+		'<gamemode>': ['survival', 'creative', 'spectator'],
+		'<targets>': ['@a', '@e', '@s', '@p', '@r']
+	};
+
+	async function help(command: string = ""){
+		const request = create(SendCommandRequestSchema, {
+			id: server.id,
+			command: 'help' + (command !== "" ? " " + command : ""),
+			silent: true
+		});
+		const response = await rpcClient.server.sendCommand(request);
+		return response.output;
+	}
 
 	async function initCommandCompletion() {
 		recentCommandIndex = -1;
@@ -297,7 +316,6 @@
 		open = false;
 		suggestions = [];
 		activeSuggestionIndex = -1;
-		suggestionItemRefs = [];
 		completions = undefined;
 		try {
 			const [versionsData] = await Promise.all([
@@ -322,7 +340,7 @@
 		if (!open || activeSuggestionIndex < 0) return;
 
 		queueMicrotask(() => {
-			suggestionItemRefs[activeSuggestionIndex]?.scrollIntoView({ block: 'nearest' });
+			suggestions[activeSuggestionIndex]?.ref?.scrollIntoView({ block: 'nearest' });
 		});
 	});
 
@@ -333,24 +351,18 @@
 			fetchCompletions()
 		}
 		if(completions){
-			suggestions = completions.getPossibleCompletions(command);
+			const visibleSuggestions = (await completions.getPossibleCompletions(command)).filter((suggestion) => suggestion.trim() !== '');
+			suggestions = visibleSuggestions.map((value) => ({ value, ref: null }));
 			activeSuggestionIndex = suggestions.length > 0 ? 0 : -1;
-			suggestionItemRefs = suggestions.map(() => null);
 		}
 		
 	}
 
 	async function fetchCompletions() {
 		if(forceDisabled) return;
-		const request = create(SendCommandRequestSchema, {
-			id: server.id,
-			command: 'help',
-			silent: true
-		});
-		const response = await rpcClient.server.sendCommand(request);
-		if(response.success){
-			completions = new Completions(response.output);
-		}
+		const raw = await help();
+		completions = new Completions(raw, mappings, async (command) => await help(command));
+
 	}
 	
 
@@ -358,17 +370,15 @@
 		if(command.split(' ').length <= 1){
 			command = suggestion + " ";
   	  		open = true;
-			updateSuggestions()
+			updateSuggestions();
 		} else {
 			const parts = command.split(' ');
 			let newCommand = parts.slice(0, -1).concat(suggestion).join(' ') + " ";
 			command = newCommand;
-  	  		open = true;
-			updateSuggestions()
-
+	  		open = true;
+			updateSuggestions();
 		}
-  	  	
-  	}
+	}
 
 	function focusDropdown(index: number) {
 		if (!suggestions.length) return;
@@ -387,7 +397,7 @@
 			activeSuggestionIndex = activeSuggestionIndex > 0 ? activeSuggestionIndex - 1 : suggestions.length - 1;
 		} else if ((e.key === 'Enter' || e.key == 'Tab') && activeSuggestionIndex >= 0) {
 			e.preventDefault();
-			applyCompletion(suggestions[activeSuggestionIndex]);
+			applyCompletion(suggestions[activeSuggestionIndex].value);
 			commandInput?.focus();
 		} else if (e.key === 'Escape') {
 			e.preventDefault();
@@ -395,6 +405,14 @@
 			recentCommandIndex = -1;
 			activeSuggestionIndex = -1;
 			commandInput?.focus();
+		}
+		else {
+			e.preventDefault()
+			recentCommandIndex = -1;
+			activeSuggestionIndex = -1;
+			commandInput?.focus();
+			command += e.key;
+
 		}
 	}
 
@@ -408,7 +426,6 @@
 		open = false;
 		recentCommandIndex = -1;
 		activeSuggestionIndex = -1;
-		suggestionItemRefs = [];
 	}
 
 	function keyDown(e: KeyboardEvent) {
@@ -418,15 +435,13 @@
 			suggestions = [];
 			open = false;
 			activeSuggestionIndex = -1;
-			suggestionItemRefs = [];
 		} else if (e.key === 'Tab') {
 			e.preventDefault();
 			if (suggestions.length > 0) {
-				applyCompletion(suggestions[0]);
+				applyCompletion(suggestions[0].value);
 			}
 		} else if (e.key === 'Escape') {
 			open = false;
-			suggestionItemRefs = [];
 		} else if (e.key === 'ArrowUp') {
 			e.preventDefault();
 			if (open && suggestions.length > 0) {
@@ -623,16 +638,14 @@
 			>
 				<Command>
 					<CommandList class="max-h-[150px]">
-						{#each suggestions as s, i}
-							{#if s.trim() !== ''}
+						{#each suggestions as suggestion, i}
 							<CommandItem
-								bind:ref={suggestionItemRefs[i]}
-								onclick={() => applyCompletion(s)}
+								bind:ref={suggestion.ref}
+								onclick={() => applyCompletion(suggestion.value)}
 								class="font-mono text-sm {i === activeSuggestionIndex ? 'bg-accent text-accent-foreground' : ''}"
 							>
-								{s}
+								{suggestion.value}
 							</CommandItem>
-							{/if}
 						{/each}
 					</CommandList>
 				</Command>
