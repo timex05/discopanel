@@ -90,7 +90,7 @@ func NewServer(store *storage.Store, docker *docker.Client, cfg *config.Config, 
 	downloadManager := download.NewManager(cfg.Storage.TempDir, uploadTTL, log)
 
 	// Initialize WebSocket hub
-	wsHub := ws.NewHub(logStreamer, authManager, enforcer, store, docker, log)
+	wsHub := ws.NewHub(logStreamer, authManager, enforcer, store, docker, cfg, log)
 	go wsHub.Run()
 
 	s := &Server{

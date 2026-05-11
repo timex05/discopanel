@@ -16,6 +16,7 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
+	"github.com/nickheyer/discopanel/internal/command"
 	"github.com/nickheyer/discopanel/internal/config"
 	storage "github.com/nickheyer/discopanel/internal/db"
 	"github.com/nickheyer/discopanel/internal/docker"
@@ -43,6 +44,7 @@ type ServerService struct {
 	logStreamer      *logger.LogStreamer
 	metricsCollector *metrics.Collector
 	moduleManager    *module.Manager
+	commandSender    *command.Sender
 }
 
 // NewServerService creates a new server service
@@ -56,6 +58,7 @@ func NewServerService(store *storage.Store, docker *docker.Client, config *confi
 		logStreamer:      logStreamer,
 		metricsCollector: metricsCollector,
 		moduleManager:    moduleManager,
+		commandSender:    command.NewSender(store, config, docker),
 	}
 }
 
@@ -1350,8 +1353,8 @@ func (s *ServerService) SendCommand(ctx context.Context, req *connect.Request[v1
 		s.logStreamer.AddCommandEntry(server.ContainerID, req.Msg.Command, commandTime)
 	}
 
-	// Execute command in container
-	output, err := s.docker.ExecCommand(ctx, server.ContainerID, req.Msg.Command)
+	// Send command via RCON first, then docker exec fallback
+	output, err := s.commandSender.SendCommand(ctx, server.ID, req.Msg.Command)
 	success := err == nil
 
 	// Add command output to log stream if available

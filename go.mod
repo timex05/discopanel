@@ -19,6 +19,7 @@ require (
 	github.com/mholt/archives v0.1.5
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/spf13/viper v1.20.1
+	github.com/tidwall/gjson v1.18.0
 	golang.org/x/crypto v0.46.0
 	golang.org/x/oauth2 v0.35.0
 	google.golang.org/protobuf v1.36.10
@@ -26,7 +27,6 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 	gorm.io/driver/sqlite v1.6.0
 	gorm.io/gorm v1.31.1
-	github.com/tidwall/gjson v1.18.0
 )
 
 require (
@@ -86,6 +86,7 @@ require (
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
+	github.com/jltobler/go-rcon v0.3.0
 	github.com/klauspost/compress v1.18.0 // indirect
 	github.com/klauspost/pgzip v1.2.6 // indirect
 	github.com/mattn/go-sqlite3 v1.14.30 // indirect

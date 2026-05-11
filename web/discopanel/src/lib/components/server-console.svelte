@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onDestroy, untrack } from 'svelte';
+	import { onDestroy, onMount, untrack } from 'svelte';
 	import { rpcClient } from '$lib/api/rpc-client';
 	import { create } from '@bufbuild/protobuf';
 	import type { Server } from '$lib/proto/discopanel/v1/common_pb';
@@ -13,10 +13,11 @@
 	import { Terminal, Send, Loader2, Download, Upload, Trash2, RefreshCw, Wifi, WifiOff } from '@lucide/svelte';
 	import * as Tooltip from '$lib/components/ui/tooltip/index.js';
 	import AnsiToHtml from 'ansi-to-html';
-	import { getStringForEnum } from '$lib/utils';
+	import { compareVersions, getStringForEnum } from '$lib/utils';
 	import { wsClient } from '$lib/stores/websocket.svelte';
 	import Completions  from '$lib/utils/completions';
 	import { Command, CommandItem, CommandList } from './ui/command';
+	import type { MinecraftVersion } from '$lib/proto/discopanel/v1/minecraft_pb';
 
 	// Create ansi-to-html converter with proper options
 	const ansiConverter = new AnsiToHtml({
@@ -45,8 +46,6 @@
 
 	// Track previous server ID
 	let previousServerId = server.id;
-
-	let completions: Completions | undefined = undefined;
 
 	onDestroy(() => {
 		untrack(() => cleanupWebSocket());
@@ -79,7 +78,10 @@
 					wsClient.subscribe(currentServerId, tailLines);
 				}
 			});
+			initCommandCompletion();
 		}
+		
+
 	});
 
 	function setupWebSocket() {
@@ -187,6 +189,7 @@
 
 		loading = true;
 		const cmdToSend = command;
+		recentCommands.push(cmdToSend);
 		command = '';
 
 		// Use WebSocket if connected, otherwise fallback to RPC
@@ -273,22 +276,72 @@
 
 
 	// Command Completion
+	let completions: Completions | undefined = undefined;
+	let recentCommands: string[] = [];
+	let recentCommandIndex = -1;
 
+	let forceDisabled = $state(false);
+	let enabled = $state(false);
   	let open = $state(false);
 	let suggestions = $state<string[]>([]);
+	let activeSuggestionIndex = $state(-1);
+	let suggestionItemRefs = $state<(HTMLElement | null)[]>([]);
+
+	let commandDropdown: HTMLElement | null = $state(null);
+	let commandInput: HTMLInputElement | null = $state(null);
+
+	async function initCommandCompletion() {
+		recentCommandIndex = -1;
+		forceDisabled = false;
+		enabled = false;
+		open = false;
+		suggestions = [];
+		activeSuggestionIndex = -1;
+		suggestionItemRefs = [];
+		completions = undefined;
+		try {
+			const [versionsData] = await Promise.all([
+				rpcClient.minecraft.getMinecraftVersions({}),
+			]);
+			forceDisabled = compareVersions(server.mcVersion, '1.13', versionsData.versions) < 0;
+
+			if(!forceDisabled && server.status === ServerStatus.RUNNING){
+				await fetchCompletions();
+				enabled = true;
+			}
+		} catch (error) {
+			console.error('Failed to fetch command completions:', error);
+		}
+	}
+
+	onMount(async() => {
+		await initCommandCompletion();
+	});
+
+	$effect(() => {
+		if (!open || activeSuggestionIndex < 0) return;
+
+		queueMicrotask(() => {
+			suggestionItemRefs[activeSuggestionIndex]?.scrollIntoView({ block: 'nearest' });
+		});
+	});
 
 
 	async function updateSuggestions() {
+		if(forceDisabled) return;
 		if(!completions && server.status === ServerStatus.RUNNING){
 			fetchCompletions()
 		}
 		if(completions){
 			suggestions = completions.getPossibleCompletions(command);
+			activeSuggestionIndex = suggestions.length > 0 ? 0 : -1;
+			suggestionItemRefs = suggestions.map(() => null);
 		}
 		
 	}
 
 	async function fetchCompletions() {
+		if(forceDisabled) return;
 		const request = create(SendCommandRequestSchema, {
 			id: server.id,
 			command: 'help'
@@ -307,7 +360,7 @@
 			updateSuggestions()
 		} else {
 			const parts = command.split(' ');
-			let newCommand = parts.slice(0, -1).concat(suggestion).join(' ') + "";
+			let newCommand = parts.slice(0, -1).concat(suggestion).join(' ') + " ";
 			command = newCommand;
   	  		open = true;
 			updateSuggestions()
@@ -316,23 +369,108 @@
   	  	
   	}
 
+	function focusDropdown(index: number) {
+		if (!suggestions.length) return;
+		activeSuggestionIndex = Math.max(0, Math.min(index, suggestions.length - 1));
+		commandDropdown?.focus();
+	}
+
+	function handleDropdownKeyDown(e: KeyboardEvent) {
+		if (!suggestions.length) return;
+
+		if (e.key === 'ArrowDown') {
+			e.preventDefault();
+			activeSuggestionIndex = activeSuggestionIndex < suggestions.length - 1 ? activeSuggestionIndex + 1 : 0;
+		} else if (e.key === 'ArrowUp') {
+			e.preventDefault();
+			activeSuggestionIndex = activeSuggestionIndex > 0 ? activeSuggestionIndex - 1 : suggestions.length - 1;
+		} else if ((e.key === 'Enter' || e.key == 'Tab') && activeSuggestionIndex >= 0) {
+			e.preventDefault();
+			applyCompletion(suggestions[activeSuggestionIndex]);
+			commandInput?.focus();
+		} else if (e.key === 'Escape') {
+			e.preventDefault();
+			open = false;
+			recentCommandIndex = -1;
+			activeSuggestionIndex = -1;
+			commandInput?.focus();
+		}
+	}
+
+	function handleCommandBlur(event: FocusEvent) {
+		if(forceDisabled) return;
+		const nextFocused = event.relatedTarget as Node | null;
+		if (nextFocused && commandDropdown?.contains(nextFocused)) {
+			return;
+		}
+
+		open = false;
+		recentCommandIndex = -1;
+		activeSuggestionIndex = -1;
+		suggestionItemRefs = [];
+	}
+
 	function keyDown(e: KeyboardEvent) {
+		if(!enabled || forceDisabled) return;
 		if (e.key === 'Enter') {
 			sendCommand();
 			suggestions = [];
 			open = false;
+			activeSuggestionIndex = -1;
+			suggestionItemRefs = [];
 		} else if (e.key === 'Tab') {
 			e.preventDefault();
 			if (suggestions.length > 0) {
 				applyCompletion(suggestions[0]);
 			}
+		} else if (e.key === 'Escape') {
+			open = false;
+			suggestionItemRefs = [];
+		} else if (e.key === 'ArrowUp') {
+			e.preventDefault();
+			if (open && suggestions.length > 0) {
+				focusDropdown(suggestions.length - 1);
+				return;
+			}
+			if(recentCommands.length == 0) return;
+			if(recentCommandIndex == 0) return;
+
+			if(recentCommandIndex == -1){
+				recentCommandIndex = recentCommands.length - 1;
+				command = recentCommands[recentCommandIndex];
+			} else {
+				recentCommandIndex -= 1;
+				command = recentCommands[recentCommandIndex];
+			}
+			return;
+		} else if (e.key === 'ArrowDown') {
+			e.preventDefault();
+			if (open && suggestions.length > 0) {
+				focusDropdown(0);
+				return;
+			}
+			if(recentCommands.length == 0) return;
+			if(recentCommandIndex == -1) return;
+
+			recentCommandIndex += 1;
+			if(recentCommandIndex >= recentCommands.length){
+				recentCommandIndex = -1;
+				command = '';
+			} else {
+				command = recentCommands[recentCommandIndex];
+			}
+			return;
+		
 		} else {
 			open = true;
 		}
 
+		recentCommandIndex = -1;
+
 	}
 
 	async function onFocus() {
+		if(forceDisabled) return;
 		open = true; 
 		if(!completions){
 			await fetchCompletions();
@@ -456,49 +594,67 @@
 
 	<div class="flex flex-col bg-zinc-950">
 		<div class="flex shrink-0 gap-2 border-t border-zinc-800 p-3">
+	<div class="relative flex flex-1 items-center gap-2">
+		<span class="font-mono text-sm text-green-500">$</span>
 
-			<div class="w-96 space-y-1 relative combobox">
+		<input
+			bind:this={commandInput}
+			onfocus={onFocus}
+			type="text"
+			onfocusout={handleCommandBlur}
+			placeholder={(server.status === ServerStatus.RUNNING || server.status === ServerStatus.UNHEALTHY)
+				? 'Enter command...'
+				: 'Server must be running'}
+			bind:value={command}
+			disabled={server.status !== ServerStatus.RUNNING && server.status !== ServerStatus.UNHEALTHY}
+			onkeydown={keyDown}
+			oninput={updateSuggestions}
+			class="flex-1 bg-transparent font-mono text-sm text-white outline-none placeholder:text-zinc-600"
+		/>
 
-  <!-- 🔹 Dropdown -->
-  {#if open && suggestions.length > 0}
-    <div class="absolute w-full z-50 mt-1 rounded-md border bg-popover shadow-md">
-      <Command>
-        <CommandList>
-          {#each suggestions as s}
-            <CommandItem onclick={() => applyCompletion(s)}>
-              {s}
-            </CommandItem>
-          {/each}
-        </CommandList>
-      </Command>
-    </div>
-  {/if}
-</div>
-			<div class="flex flex-1 items-center gap-2">
-				<span class="font-mono text-sm text-green-500">$</span>
-				<input
-    				onfocus={onFocus}
-					type="text"
-					placeholder={(server.status === ServerStatus.RUNNING || server.status === ServerStatus.UNHEALTHY)? 'Enter command...' : 'Server must be running'}
-					bind:value={command}
-					disabled={server.status !== ServerStatus.RUNNING && server.status !== ServerStatus.UNHEALTHY}
-					onkeydown={keyDown}
-					oninput={updateSuggestions}
-					class="flex-1 bg-transparent font-mono text-sm text-white outline-none placeholder:text-zinc-600"
-				/>
-			</div>
-			<Button
-				onclick={sendCommand}
-				disabled={server.status === ServerStatus.STOPPED || !command.trim()}
-				size="sm"
-				class="h-7 bg-zinc-800 px-3 text-white hover:bg-zinc-700"
+		<!-- Floating Command Completion -->
+		{#if !forceDisabled && enabled && open && suggestions.length > 0}
+			<div
+				class="absolute bottom-full left-0 mb-2 w-full z-50 rounded-md border border-zinc-700 bg-zinc-900 shadow-xl"
+				bind:this={commandDropdown}
+				tabindex="-1"
+				onkeydown={handleDropdownKeyDown}
 			>
-				<Send class="h-3 w-3" />
-			</Button>
-		</div>
+				<Command>
+					<CommandList class="max-h-[150px]">
+						{#each suggestions as s, i}
+							{#if s.trim() !== ''}
+							<CommandItem
+								bind:ref={suggestionItemRefs[i]}
+								onclick={() => applyCompletion(s)}
+								class="font-mono text-sm {i === activeSuggestionIndex ? 'bg-accent text-accent-foreground' : ''}"
+							>
+								{s}
+							</CommandItem>
+							{/if}
+						{/each}
+					</CommandList>
+				</Command>
+			</div>
+		{/if}
+	</div>
+
+	<Button
+		onclick={sendCommand}
+		disabled={server.status === ServerStatus.STOPPED || !command.trim()}
+		size="sm"
+		class="h-7 bg-zinc-800 px-3 text-white hover:bg-zinc-700"
+	>
+		<Send class="h-3 w-3" />
+	</Button>
+</div>
 
 		<div class="flex shrink-0 items-center justify-between px-3 pb-2 text-xs text-zinc-500">
 			<div class="flex items-center gap-4">
+				<label class="flex items-center gap-2" title="Command Completion available for versions >= 1.13">
+					<input type="checkbox" bind:checked={enabled} disabled={forceDisabled} class="h-3 w-3 rounded" />
+					Command-Completion
+				</label>
 				<label class="flex items-center gap-2">
 					<input type="checkbox" bind:checked={autoScroll} class="h-3 w-3 rounded" />
 					Auto-scroll

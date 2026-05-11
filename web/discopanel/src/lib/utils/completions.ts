@@ -154,21 +154,6 @@ class Completions {
                 }
             });
 
-            // If the input exactly matches a command whose next expected tokens are only free-form
-            // arguments, suppress repeating the command name as completion.
-            const exact = this.commands.find(
-                x => x.command === firstToken || x.aliasses.includes(firstToken)
-            );
-            if (
-                exact &&
-                output.length === 1 &&
-                output[0] === exact.command &&
-                exact.subcommands.length > 0 &&
-                exact.subcommands.every(x => x.type === "argument" || x.type === "optional")
-            ) {
-                return [];
-            }
-
             return Array.from(new Set(output));
         }
 

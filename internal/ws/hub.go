@@ -9,6 +9,8 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/nickheyer/discopanel/internal/auth"
+	"github.com/nickheyer/discopanel/internal/command"
+	"github.com/nickheyer/discopanel/internal/config"
 	storage "github.com/nickheyer/discopanel/internal/db"
 	"github.com/nickheyer/discopanel/internal/docker"
 	"github.com/nickheyer/discopanel/internal/rbac"
@@ -39,6 +41,7 @@ type Hub struct {
 	store       *storage.Store
 	docker      *docker.Client
 	log         *logger.Logger
+	command     *command.Sender
 
 	upgrader websocket.Upgrader
 
@@ -67,7 +70,7 @@ type Client struct {
 }
 
 // NewHub creates a new WebSocket hub
-func NewHub(logStreamer *logger.LogStreamer, authManager *auth.Manager, enforcer *rbac.Enforcer, store *storage.Store, docker *docker.Client, log *logger.Logger) *Hub {
+func NewHub(logStreamer *logger.LogStreamer, authManager *auth.Manager, enforcer *rbac.Enforcer, store *storage.Store, docker *docker.Client, cfg *config.Config, log *logger.Logger) *Hub {
 	return &Hub{
 		logStreamer: logStreamer,
 		authManager: authManager,
@@ -75,6 +78,7 @@ func NewHub(logStreamer *logger.LogStreamer, authManager *auth.Manager, enforcer
 		store:       store,
 		docker:      docker,
 		log:         log,
+		command:     command.NewSender(store, cfg, docker),
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool {
 				return true // Allow all origins (CORS handled elsewhere)
@@ -409,8 +413,8 @@ func (c *Client) handleCommand(msg *v1.CommandMessage) {
 	commandTime := time.Now()
 	c.hub.logStreamer.AddCommandEntry(server.ContainerID, msg.Command, commandTime)
 
-	// Execute command
-	output, err := c.hub.docker.ExecCommand(ctx, server.ContainerID, msg.Command)
+	// Send command via RCON first, then docker exec fallback
+	output, err := c.hub.command.SendCommand(ctx, server.ID, msg.Command)
 	success := err == nil
 
 	// Add output to log stream

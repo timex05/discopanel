@@ -1,6 +1,7 @@
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import type { DockerImage } from './proto/discopanel/v1/minecraft_pb';
+import type { MinecraftVersion } from './proto/discopanel/v1/minecraft_pb';
 
 export function cn(...inputs: ClassValue[]) {
 	return twMerge(clsx(inputs));
@@ -62,4 +63,13 @@ export function enumToString(map: Record<string, unknown>, val: unknown): string
 		return parts.slice(2).join('_').toLowerCase();
 	}
 	return enumKey.toLowerCase();
+}
+
+export function compareVersions(v1: string, v2: string, mcVersion: MinecraftVersion[]): number {
+	const mcVersion1: MinecraftVersion | undefined = mcVersion.find((v) => v.id === v1);
+	const mcVersion2: MinecraftVersion | undefined = mcVersion.find((v) => v.id === v2);
+	if (mcVersion1 && mcVersion2) {
+		return mcVersion1.releaseTime.localeCompare(mcVersion2.releaseTime);
+	}
+	return 0;
 }
