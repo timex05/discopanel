@@ -308,7 +308,7 @@ class WebSocketClient {
 		this.send(toBinary(WebSocketClientMessageSchema, msg));
 	}
 
-	sendCommand(serverId: string, command: string): void {
+	sendCommand(serverId: string, command: string, silent?: boolean): void {
 		if (this.state.connectionState !== 'authenticated') {
 			return;
 		}
@@ -317,7 +317,7 @@ class WebSocketClient {
 			type: WSMessageType.WS_MESSAGE_TYPE_COMMAND,
 			payload: {
 				case: 'command',
-				value: create(CommandMessageSchema, { serverId, command })
+				value: create(CommandMessageSchema, { serverId, command, silent })
 			}
 		});
 		this.send(toBinary(WebSocketClientMessageSchema, msg));

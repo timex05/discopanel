@@ -381,6 +381,11 @@ func (c *Client) handleCommand(msg *v1.CommandMessage) {
 		return
 	}
 
+	silent := false
+	if msg.Silent != nil {
+		silent = *msg.Silent
+	}
+
 	// Check command permission
 	if c.hub.enforcer != nil && c.user != nil {
 		allowed, err := c.hub.enforcer.Enforce(c.user.Roles, rbac.ResourceServers, rbac.ActionCommand, msg.ServerId)
@@ -411,14 +416,16 @@ func (c *Client) handleCommand(msg *v1.CommandMessage) {
 
 	// Add command to log stream
 	commandTime := time.Now()
-	c.hub.logStreamer.AddCommandEntry(server.ContainerID, msg.Command, commandTime)
+	if !silent {
+		c.hub.logStreamer.AddCommandEntry(server.ContainerID, msg.Command, commandTime)
+	}
 
 	// Send command via RCON first, then docker exec fallback
 	output, err := c.hub.command.SendCommand(ctx, server.ID, msg.Command)
 	success := err == nil
 
 	// Add output to log stream
-	if output != "" || !success {
+	if !silent && (output != "" || !success) {
 		c.hub.logStreamer.AddCommandOutput(server.ContainerID, output, success, commandTime)
 	}
 

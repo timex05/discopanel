@@ -1328,6 +1328,12 @@ func (s *ServerService) RecreateServer(ctx context.Context, req *connect.Request
 // SendCommand sends a command to a server
 func (s *ServerService) SendCommand(ctx context.Context, req *connect.Request[v1.SendCommandRequest]) (*connect.Response[v1.SendCommandResponse], error) {
 	server, err := s.store.GetServer(ctx, req.Msg.Id)
+
+	silent := false
+	if req.Msg.Silent != nil {
+		silent = *req.Msg.Silent
+	}
+
 	if err != nil {
 		s.log.Error("Failed to get server: %v", err)
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("server not found"))
@@ -1349,7 +1355,7 @@ func (s *ServerService) SendCommand(ctx context.Context, req *connect.Request[v1
 
 	// Add command to log stream if available
 	commandTime := time.Now()
-	if s.logStreamer != nil {
+	if !silent && s.logStreamer != nil {
 		s.logStreamer.AddCommandEntry(server.ContainerID, req.Msg.Command, commandTime)
 	}
 
@@ -1358,7 +1364,7 @@ func (s *ServerService) SendCommand(ctx context.Context, req *connect.Request[v1
 	success := err == nil
 
 	// Add command output to log stream if available
-	if s.logStreamer != nil && (output != "" || !success) {
+	if !silent && s.logStreamer != nil && (output != "" || !success) {
 		s.logStreamer.AddCommandOutput(server.ContainerID, output, success, commandTime)
 	}
 

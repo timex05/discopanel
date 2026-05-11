@@ -344,7 +344,8 @@
 		if(forceDisabled) return;
 		const request = create(SendCommandRequestSchema, {
 			id: server.id,
-			command: 'help'
+			command: 'help',
+			silent: true
 		});
 		const response = await rpcClient.server.sendCommand(request);
 		if(response.success){
