@@ -193,7 +193,7 @@ func main() {
 	defer moduleManager.Stop()
 
 	// Initialize RPC server with full configuration
-	rpcServer := rpc.NewServer(store, dockerClient, cfg, proxyManager, taskScheduler, metricsCollector, moduleManager, log)
+	rpcServer := rpc.NewServer(store, dockerClient, sender, cfg, proxyManager, taskScheduler, metricsCollector, moduleManager, log)
 
 	// Print recovery key
 	if key := rpcServer.RecoveryKey(); key != "" {

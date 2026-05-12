@@ -48,7 +48,7 @@ type ServerService struct {
 }
 
 // NewServerService creates a new server service
-func NewServerService(store *storage.Store, docker *docker.Client, config *config.Config, proxy *proxy.Manager, logStreamer *logger.LogStreamer, metricsCollector *metrics.Collector, moduleManager *module.Manager, log *logger.Logger) *ServerService {
+func NewServerService(store *storage.Store, docker *docker.Client, config *config.Config, proxy *proxy.Manager, logStreamer *logger.LogStreamer, metricsCollector *metrics.Collector, moduleManager *module.Manager, log *logger.Logger, sender *command.Sender) *ServerService {
 	return &ServerService{
 		store:            store,
 		docker:           docker,
@@ -58,7 +58,7 @@ func NewServerService(store *storage.Store, docker *docker.Client, config *confi
 		logStreamer:      logStreamer,
 		metricsCollector: metricsCollector,
 		moduleManager:    moduleManager,
-		commandSender:    command.NewSender(store, config, docker),
+		commandSender:    sender,
 	}
 }
 
