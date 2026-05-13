@@ -143,7 +143,7 @@ func (d *EventDispatcher) sendRCON(ctx context.Context, serverID string, command
 		return nil
 	}
 
-	// send RCON command to server
+	// send command
 	_, err = d.sender.SendCommand(ctx, server.ID, command)
 	return err
 }

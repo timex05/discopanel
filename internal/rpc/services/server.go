@@ -38,27 +38,27 @@ var _ discopanelv1connect.ServerServiceHandler = (*ServerService)(nil)
 type ServerService struct {
 	store            *storage.Store
 	docker           *docker.Client
+	sender           *command.Sender
 	config           *config.Config
 	proxy            *proxy.Manager
 	log              *logger.Logger
 	logStreamer      *logger.LogStreamer
 	metricsCollector *metrics.Collector
 	moduleManager    *module.Manager
-	commandSender    *command.Sender
 }
 
 // NewServerService creates a new server service
-func NewServerService(store *storage.Store, docker *docker.Client, config *config.Config, proxy *proxy.Manager, logStreamer *logger.LogStreamer, metricsCollector *metrics.Collector, moduleManager *module.Manager, log *logger.Logger, sender *command.Sender) *ServerService {
+func NewServerService(store *storage.Store, docker *docker.Client, sender *command.Sender, config *config.Config, proxy *proxy.Manager, logStreamer *logger.LogStreamer, metricsCollector *metrics.Collector, moduleManager *module.Manager, log *logger.Logger) *ServerService {
 	return &ServerService{
 		store:            store,
 		docker:           docker,
+		sender:           sender,
 		config:           config,
 		proxy:            proxy,
 		log:              log,
 		logStreamer:      logStreamer,
 		metricsCollector: metricsCollector,
 		moduleManager:    moduleManager,
-		commandSender:    sender,
 	}
 }
 
@@ -1359,8 +1359,8 @@ func (s *ServerService) SendCommand(ctx context.Context, req *connect.Request[v1
 		s.logStreamer.AddCommandEntry(server.ContainerID, req.Msg.Command, commandTime)
 	}
 
-	// Send command via RCON first, then docker exec fallback
-	output, err := s.commandSender.SendCommand(ctx, server.ID, req.Msg.Command)
+	// Send command
+	output, err := s.sender.SendCommand(ctx, server.ID, req.Msg.Command)
 	success := err == nil
 
 	// Add command output to log stream if available

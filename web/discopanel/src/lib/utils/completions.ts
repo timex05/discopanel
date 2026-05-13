@@ -10,12 +10,12 @@ class Completions {
 
     private commands: CommandObject[] = [];
     private mappings: Record<string, string[]>;
-    private helpFunc: (command: string) => Promise<string>;
+    private commandFunction: (command: string) => Promise<string>;
 
-    constructor(baseHelpString: string, mappings: Record<string, string[]>, helpFunc: (command: string) => Promise<string>) {
+    constructor(baseHelpString: string, mappings: Record<string, string[]>, commandFunction: (command: string) => Promise<string>) {
         this.commands = this.parseCommands(baseHelpString);
         this.mappings = mappings;
-        this.helpFunc = helpFunc;
+        this.commandFunction = commandFunction;
 
     }
 
@@ -192,8 +192,8 @@ class Completions {
         if (commandObject.isEndpoint) {
             return;
         }
-
-        const helpOutput = (await this.helpFunc(currentCommand.replace('<', "").replace('>', "").replace('[', "").replace(']', "").replace('|', "").replace('(', "").replace(')', ""))).trim();
+        const command = "help " + currentCommand.replace('<', "").replace('>', "").replace('[', "").replace(']', "").replace('|', "").replace('(', "").replace(')', "");
+        const helpOutput = (await this.commandFunction(command)).trim();
 
         if (helpOutput.trim() == '') {
             commandObject.isEndpoint = true;

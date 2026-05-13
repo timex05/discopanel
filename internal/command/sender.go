@@ -34,15 +34,15 @@ func (s *Sender) SendCommand(ctx context.Context, serverID string, command strin
 	server, err := s.store.GetServer(ctx, serverID)
 
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("server container not found")
 	}
 	if server.ContainerID == "" {
 		return "", fmt.Errorf("server container not found")
 	}
 
+	// old docker exec command
 	fallbackExec := func(cause error) (string, error) {
 		output, fallbackErr := s.docker.ExecCommand(ctx, server.ContainerID, command)
-		fmt.Println("Fallback execution result:", output, fallbackErr)
 		if fallbackErr != nil {
 			return "", fmt.Errorf("rcon path failed: %w; fallback exec failed: %v", cause, fallbackErr)
 		}
@@ -90,17 +90,14 @@ func (s *Sender) SendCommand(ctx context.Context, serverID string, command strin
 		return fallbackExec(fmt.Errorf("failed to resolve container ip: %w", err))
 	}
 
-	fmt.Println("Attempting to send RCON command to", ip, "on port", rconPort)
-
+	// run comamand in dedicated context with timeout
 	rconCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
 	defer cancel()
 	output, err := rcon.SendCommand(rconCtx, ip, rconPort, rconPassword, command)
-	fmt.Println(err)
 
 	if err != nil {
 		return fallbackExec(fmt.Errorf("rcon command failed: %w", err))
 	}
 
 	return output, nil
-
 }

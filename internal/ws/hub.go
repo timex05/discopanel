@@ -40,7 +40,7 @@ type Hub struct {
 	store       *storage.Store
 	docker      *docker.Client
 	log         *logger.Logger
-	command     *command.Sender
+	sender      *command.Sender
 
 	upgrader websocket.Upgrader
 
@@ -77,7 +77,7 @@ func NewHub(logStreamer *logger.LogStreamer, authManager *auth.Manager, enforcer
 		store:       store,
 		docker:      docker,
 		log:         log,
-		command:     sender,
+		sender:      sender,
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool {
 				return true // Allow all origins (CORS handled elsewhere)
@@ -413,17 +413,16 @@ func (c *Client) handleCommand(msg *v1.CommandMessage) {
 		return
 	}
 
-	// Add command to log stream
+	// Add command to log stream if not silent
 	commandTime := time.Now()
 	if !silent {
 		c.hub.logStreamer.AddCommandEntry(server.ContainerID, msg.Command, commandTime)
 	}
 
-	// Send command via RCON first, then docker exec fallback
-	output, err := c.hub.command.SendCommand(ctx, server.ID, msg.Command)
+	output, err := c.hub.sender.SendCommand(ctx, server.ID, msg.Command)
 	success := err == nil
 
-	// Add output to log stream
+	// Add output to log stream if not silent
 	if !silent && (output != "" || !success) {
 		c.hub.logStreamer.AddCommandOutput(server.ContainerID, output, success, commandTime)
 	}

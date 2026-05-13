@@ -299,10 +299,10 @@
 		'<targets>': ['@a', '@e', '@s', '@p', '@r']
 	};
 
-	async function help(command: string = ""){
+	async function sendCommandWithReturn(command: string = ""){
 		const request = create(SendCommandRequestSchema, {
 			id: server.id,
-			command: 'help' + (command !== "" ? " " + command : ""),
+			command: command,
 			silent: true
 		});
 		const response = await rpcClient.server.sendCommand(request);
@@ -360,8 +360,8 @@
 
 	async function fetchCompletions() {
 		if(forceDisabled) return;
-		const raw = await help();
-		completions = new Completions(raw, mappings, async (command) => await help(command));
+		const raw = await sendCommandWithReturn('help');
+		completions = new Completions(raw, mappings, async (command) => await sendCommandWithReturn(command));
 
 	}
 	
