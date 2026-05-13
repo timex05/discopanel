@@ -296,10 +296,12 @@
 
 	const mappings = {
 		'<gamemode>': ['survival', 'creative', 'spectator'],
-		'<targets>': ['@a', '@e', '@s', '@p', '@r']
+		'<targets>': ['@a', '@e','@n', '@s', '@p', '@r'],
+		'<target>': ['@a', '@e', '@s', '@p', '@r']
 	};
 
-	async function sendCommandWithReturn(command: string = ""){
+	async function sendCommandWithReturn(command: string): Promise<string> {
+		console.log(`Fetching completions with command: ${command}`);
 		const request = create(SendCommandRequestSchema, {
 			id: server.id,
 			command: command,
@@ -361,7 +363,11 @@
 	async function fetchCompletions() {
 		if(forceDisabled) return;
 		const raw = await sendCommandWithReturn('help');
-		completions = new Completions(raw, mappings, async (command) => await sendCommandWithReturn(command));
+		completions = new Completions(
+			raw,
+			mappings,
+			async (command) => await sendCommandWithReturn(command)
+		);
 
 	}
 	
@@ -429,13 +435,13 @@
 	}
 
 	function keyDown(e: KeyboardEvent) {
-		if(!enabled || forceDisabled) return;
 		if (e.key === 'Enter') {
 			sendCommand();
 			suggestions = [];
 			open = false;
 			activeSuggestionIndex = -1;
 		} else if (e.key === 'Tab') {
+			if(!enabled || forceDisabled) return;
 			e.preventDefault();
 			if (suggestions.length > 0) {
 				applyCompletion(suggestions[0].value);
