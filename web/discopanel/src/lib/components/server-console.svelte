@@ -10,14 +10,13 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Badge } from '$lib/components/ui/badge';
 	import { toast } from 'svelte-sonner';
-	import { Terminal, Send, Loader2, Download, Upload, Trash2, RefreshCw, Wifi, WifiOff, Bubbles } from '@lucide/svelte';
+	import { Terminal, Send, Loader2, Download, Upload, Trash2, RefreshCw, Wifi, WifiOff } from '@lucide/svelte';
 	import * as Tooltip from '$lib/components/ui/tooltip/index.js';
 	import AnsiToHtml from 'ansi-to-html';
 	import { compareVersions, getStringForEnum } from '$lib/utils';
 	import { wsClient } from '$lib/stores/websocket.svelte';
 	import Completions  from '$lib/utils/completions';
 	import { Command, CommandItem, CommandList } from './ui/command';
-	import type { MinecraftVersion } from '$lib/proto/discopanel/v1/minecraft_pb';
 
 	// Create ansi-to-html converter with proper options
 	const ansiConverter = new AnsiToHtml({
@@ -276,18 +275,19 @@
 
 
 	// Command Completion
-	let completions: Completions | undefined = undefined;
+	let completions = $state<Completions | undefined>(undefined);
+
 	let recentCommands: string[] = [];
 	let recentCommandIndex = -1;
 
 	let forceDisabled = $state(false);
 	let enabled = $state(false);
   	let open = $state(false);
+
 	type SuggestionItem = {
 		value: string;
 		ref: HTMLElement | null;
 	};
-
 	let suggestions = $state<SuggestionItem[]>([]);
 	let activeSuggestionIndex = $state(-1);
 
@@ -301,7 +301,6 @@
 	};
 
 	async function sendCommandWithReturn(command: string): Promise<string> {
-		console.log(`Fetching completions with command: ${command}`);
 		const request = create(SendCommandRequestSchema, {
 			id: server.id,
 			command: command,
@@ -312,13 +311,21 @@
 	}
 
 	async function initCommandCompletion() {
+		completions = undefined;
+
+		recentCommands = [];
 		recentCommandIndex = -1;
+
 		forceDisabled = false;
 		enabled = false;
 		open = false;
+
 		suggestions = [];
 		activeSuggestionIndex = -1;
-		completions = undefined;
+
+		commandDropdown = null;
+		commandInput = null;
+
 		try {
 			const [versionsData] = await Promise.all([
 				rpcClient.minecraft.getMinecraftVersions({}),
@@ -346,18 +353,16 @@
 		});
 	});
 
-
 	async function updateSuggestions() {
 		if(forceDisabled) return;
 		if(!completions && server.status === ServerStatus.RUNNING){
-			fetchCompletions()
+			await fetchCompletions();
 		}
 		if(completions){
 			const visibleSuggestions = (await completions.getPossibleCompletions(command)).filter((suggestion) => suggestion.trim() !== '');
 			suggestions = visibleSuggestions.map((value) => ({ value, ref: null }));
 			activeSuggestionIndex = suggestions.length > 0 ? 0 : -1;
 		}
-		
 	}
 
 	async function fetchCompletions() {
@@ -371,18 +376,17 @@
 
 	}
 	
-
-  	function applyCompletion(suggestion: string) {
+  	async function applyCompletion(suggestion: string) {
 		if(command.split(' ').length <= 1){
 			command = suggestion + " ";
   	  		open = true;
-			updateSuggestions();
+			await updateSuggestions();
 		} else {
 			const parts = command.split(' ');
 			let newCommand = parts.slice(0, -1).concat(suggestion).join(' ') + " ";
 			command = newCommand;
 	  		open = true;
-			updateSuggestions();
+			await updateSuggestions();
 		}
 	}
 
@@ -417,8 +421,7 @@
 			recentCommandIndex = -1;
 			activeSuggestionIndex = -1;
 			commandInput?.focus();
-			command += e.key;
-
+			if(e.key.length === 1) command += e.key;
 		}
 	}
 
@@ -428,7 +431,6 @@
 		if (nextFocused && commandDropdown?.contains(nextFocused)) {
 			return;
 		}
-
 		open = false;
 		recentCommandIndex = -1;
 		activeSuggestionIndex = -1;
@@ -488,7 +490,6 @@
 		}
 
 		recentCommandIndex = -1;
-
 	}
 
 	async function onFocus() {
@@ -499,7 +500,6 @@
 		}
 		updateSuggestions();
 	}
-
 
 </script>
 
