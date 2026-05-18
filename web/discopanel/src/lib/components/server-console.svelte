@@ -3,17 +3,18 @@
 	import { rpcClient } from '$lib/api/rpc-client';
 	import { create } from '@bufbuild/protobuf';
 	import type { Server } from '$lib/proto/discopanel/v1/common_pb';
-	import { ServerStatus } from '$lib/proto/discopanel/v1/common_pb';
+	import { ModLoader, ServerStatus } from '$lib/proto/discopanel/v1/common_pb';
 	import type { LogEntry } from '$lib/proto/discopanel/v1/server_pb';
 	import { GetServerLogsRequestSchema, ClearServerLogsRequestSchema, SendCommandRequestSchema, UploadToMCLogsRequestSchema } from '$lib/proto/discopanel/v1/server_pb';
 	import { ResizablePaneGroup, ResizablePane, ResizableHandle } from '$lib/components/ui/resizable';
 	import { Button } from '$lib/components/ui/button';
 	import { Badge } from '$lib/components/ui/badge';
 	import { toast } from 'svelte-sonner';
-	import { Terminal, Send, Loader2, Download, Upload, Trash2, RefreshCw, Wifi, WifiOff } from '@lucide/svelte';
+	import { Terminal, Send, Loader2, Download, Upload, Trash2, RefreshCw, Wifi, WifiOff, AlertCircle } from '@lucide/svelte';
 	import * as Tooltip from '$lib/components/ui/tooltip/index.js';
 	import AnsiToHtml from 'ansi-to-html';
-	import { compareVersions, getStringForEnum } from '$lib/utils';
+	import { enumToString, getStringForEnum } from '$lib/utils';
+	import { isModLoaderCompatible } from '$lib/utils/modloader-compatibility';
 	import { wsClient } from '$lib/stores/websocket.svelte';
 	import Completions  from '$lib/utils/completions';
 	import { Command, CommandItem, CommandList } from './ui/command';
@@ -311,6 +312,8 @@
 	}
 
 	async function initCommandCompletion() {
+		// Reset state
+
 		completions = undefined;
 
 		recentCommands = [];
@@ -327,10 +330,14 @@
 		commandInput = null;
 
 		try {
-			const [versionsData] = await Promise.all([
-				rpcClient.minecraft.getMinecraftVersions({}),
-			]);
-			forceDisabled = compareVersions(server.mcVersion, '1.13', versionsData.versions) < 0;
+			// check mod-loader compatibility
+			const modLoaderCompatible = server.modLoader 
+				? await isModLoaderCompatible(server.modLoader, server.mcVersion)
+				: false;
+
+			if (!modLoaderCompatible) {
+				forceDisabled = true;
+			}
 
 			if(!forceDisabled && server.status === ServerStatus.RUNNING){
 				await fetchCompletions();
@@ -671,10 +678,27 @@
 
 		<div class="flex shrink-0 items-center justify-between px-3 pb-2 text-xs text-zinc-500">
 			<div class="flex items-center gap-4">
-				<label class="flex items-center gap-2" title="Command Completion available for versions >= 1.13">
-					<input type="checkbox" bind:checked={enabled} disabled={forceDisabled} class="h-3 w-3 rounded" />
-					Command-Completion
-				</label>
+				{#if forceDisabled}
+				<Tooltip.Root>
+					<Tooltip.Trigger>
+						<label class="flex items-center gap-2">
+							<AlertCircle class="h-4 w-4 text-red-500" />
+							Command-Completion
+						</label>
+					</Tooltip.Trigger>
+					<Tooltip.Content side="top">
+						<div class="text-xs">
+							<div>Command-Completion does not support:</div>
+						<div>{enumToString(ModLoader, server.modLoader)} {server.mcVersion}</div>						</div>
+					</Tooltip.Content>
+				</Tooltip.Root>
+				{:else}
+					<label class="flex items-center gap-2">
+						<input type="checkbox" bind:checked={enabled} disabled={forceDisabled} class="h-3 w-3 rounded" />
+						Command-Completion
+					</label>
+				{/if}
+
 				<label class="flex items-center gap-2">
 					<input type="checkbox" bind:checked={autoScroll} class="h-3 w-3 rounded" />
 					Auto-scroll
