@@ -14,7 +14,9 @@ describe('Completions', () => {
 		const baseHelpString = helpResponses['help'] ?? '';
 		const mappings = {
 			'<gamemode>': ['survival', 'creative', 'spectator'],
-			'<targets>': ['@a', '@e', '@s', '@p', '@r']
+			'<targets>': ['@a', '@e', '@n', '@s', '@p', '@r'],
+			'[<targets>]': ['@a', '@e', '@n', '@s', '@p', '@r'],
+			'<target>': ['@a', '@e', '@s', '@p', '@r']
 		};
 
 		return {
@@ -42,6 +44,27 @@ describe('Completions', () => {
 			const result = await completions.getPossibleCompletions('clear ');
 			expect(result).toContain('[<targets>]');
 		});
+
+		it('should expose sorted base commands and aliases', () => {
+			const { completions } = createCompletions({
+				help: '/experience/xp -> experience/alpha'
+			});
+
+			expect(completions.getBaseCommands()).toEqual(['alpha', 'experience', 'xp']);
+		});
+	});
+
+	it('should suggest bossbar set <id> color choices', async () => {
+		const { completions, commandFunction } = createCompletions({
+			help: '/bossbar (add|remove|list|set|get)',
+			'help bossbar set': '/bossbar set <id> (name|color|style|value|max|visible|players)',
+			'help bossbar set id': '/bossbar set id name <name>/bossbar set id color (pink|blue|red|green|yellow|purple|white)/bossbar set id style (progress|notched_6|notched_10|notched_12|notched_20)/bossbar set id value <value>/bossbar set id max <max>/bossbar set id visible <visible>/bossbar set id players [<targets>]',
+			'help bossbar set id color': '/bossbar set id color pink/bossbar set id color blue/bossbar set id color red/bossbar set id color green/bossbar set id color yellow/bossbar set id color purple/bossbar set id color white',
+			'help bossbar set id color white': ''
+		});
+
+		const result = await completions.getPossibleCompletions('bossbar set <id> color ');
+		expect(result).toEqual(expect.arrayContaining(['pink', 'blue', 'red', 'green', 'yellow', 'purple', 'white']));
 	});
 
 	describe('Help output with decorators', () => {
@@ -65,6 +88,125 @@ describe('Completions', () => {
 			const result = await completions.getPossibleCompletions('clear ');
 			expect(result).toContain('[<targets>]');
 		});
+	});
+
+	describe('advancement from', () => {
+		it('should handle advancement', async () => {
+			const { completions, commandFunction } = createCompletions({
+				help: '/advancement (grant|revoke)',
+				'help advancement grant': '/advancement grant <targets> (only|from|until|through|everything)',
+				'help advancement grant targets from': '/advancement grant targets from <advancement>',
+				'help advancement grant targets from advancement': ''
+			});
+
+			const result = await completions.getPossibleCompletions('advancement grant <targets> from ');
+			expect(result).toContain('<advancement>');
+			expect(commandFunction).toHaveBeenCalledWith('help advancement grant targets ');
+			expect(commandFunction).toHaveBeenCalledWith('help advancement grant targets from ');
+			expect(commandFunction).toHaveBeenCalledWith('help advancement grant targets from advancement ');
+		});
+	});
+
+	describe('advancement through', () => {
+		it('should handle advancement', async () => {
+			const { completions, commandFunction } = createCompletions({
+				help: '/advancement (grant|revoke)',
+				'help advancement grant': '/advancement grant <targets> (only|from|until|through|everything)',
+				'help advancement grant targets through': '/advancement grant targets through <advancement>',
+				'help advancement grant targets through advancement': ''
+			});
+
+			const result = await completions.getPossibleCompletions('advancement grant <targets> through ');
+			expect(result).toContain('<advancement>');
+			expect(commandFunction).toHaveBeenCalledWith('help advancement grant targets ');
+			expect(commandFunction).toHaveBeenCalledWith('help advancement grant targets through ');
+			expect(commandFunction).toHaveBeenCalledWith('help advancement grant targets through advancement ');
+		});
+	});
+
+	describe('attribute ', () => {
+		it('should handle attribute', async () => {
+			const { completions, commandFunction } = createCompletions({
+				help: '/attribute <target> <attribute> (get|base|modifier)',
+				'help attribute target attribute get': '/attribute target attribute get <attribute> (get|base|modifier)' // cycle detection
+			});
+
+			const result = await completions.getPossibleCompletions('help attribute target attribute get ');
+			expect(result).toHaveLength(0); // No new suggestions, should not loop infinitely
+			expect(commandFunction).toHaveBeenCalledWith('help attribute target attribute get ');
+		});
+
+		it('should handle attribute base generically', async () => {
+			const { completions, commandFunction } = createCompletions({
+				help: '/attribute <target> <attribute> (get|base|modifier)',
+				'help attribute target attribute base': '/attribute target attribute base <attribute> (get|base|modifier)'
+			});
+
+			const result = await completions.getPossibleCompletions('help attribute target attribute base ');
+			expect(result).toHaveLength(0);
+			expect(commandFunction).toHaveBeenCalledWith('help attribute target attribute base ');
+		});
+
+		it('should handle attribute modifier generically', async () => {
+			const { completions, commandFunction } = createCompletions({
+				help: '/attribute <target> <attribute> (get|base|modifier)',
+				'help attribute target attribute modifier': '/attribute target attribute modifier <attribute> (get|base|modifier)'
+			});
+
+			const result = await completions.getPossibleCompletions('help attribute target attribute modifier ');
+			expect(result).toHaveLength(0);
+			expect(commandFunction).toHaveBeenCalledWith('help attribute target attribute modifier ');
+		});
+	});
+
+	describe('generic cycle detection', () => {
+		it('should ignore repeated command tokens for any command', async () => {
+			const { completions, commandFunction } = createCompletions({
+				help: '/custom <first> <second> <third>',
+				'help custom first second': '/custom first second <first> <second> <third>'
+			});
+
+			const result = await completions.getPossibleCompletions('help custom first second ');
+			expect(result).toHaveLength(0);
+			expect(commandFunction).toHaveBeenCalledWith('help custom first second ');
+		});
+	});
+
+	it('should not treat choice->argument sequences as cycles (locate biome)', async () => {
+		const { completions, commandFunction } = createCompletions({
+			help: '/locate (structure|biome|poi)',
+			'help locate biome': '/locate biome <biome>'
+		});
+
+		const result = await completions.getPossibleCompletions('help locate biome ');
+		expect(result).toContain('<biome>');
+		expect(commandFunction).toHaveBeenCalledWith('help locate biome ');
+	});
+
+	it('should treat literal->argument repetition as cycle (defaultgamemode)', async () => {
+		const { completions, commandFunction } = createCompletions({
+			help: '/defaultgamemode <gamemode>',
+			'help defaultgamemode gamemode': '/defaultgamemode gamemode <gamemode>'
+		});
+
+		const result = await completions.getPossibleCompletions('help defaultgamemode survival ');
+		expect(result).toHaveLength(0);
+		expect(commandFunction).toHaveBeenCalledWith('help defaultgamemode gamemode ');
+	});
+
+	it('should not probe optionals like [ips|players] for banlist', async () => {
+		const { completions, commandFunction } = createCompletions({
+			help: '/banlist [ips|players]',
+			'help banlist': '/banlist [ips]/banlist [players]',
+			'help banlist ips': '',
+		});
+
+		const result = await completions.getPossibleCompletions('banlist ips ');
+		const result1 = await completions.getPossibleCompletions('banlist ip');
+		expect(result1).toContain('ips');
+		expect(result1).toHaveLength(1);
+		expect(result).toHaveLength(0);
+		expect(commandFunction).toHaveBeenCalledWith('help banlist ips ');
 	});
 
 	describe('Real values instead of placeholders', () => {
@@ -251,4 +393,37 @@ describe('Completions', () => {
 			expect(result).toBeDefined();
 		});
 	});
+
+	describe('rotate command', () => {
+		it('should suggest facingEntity and facingLocation for "rotate <target> facing "', async () => {
+			const { completions, commandFunction } = createCompletions({
+				help: '/rotate <target> (<rotation>|facing)',
+				'help rotate': '/rotate <target> (<rotation>|facing)',
+				'help rotate target facing': '/rotate target facing entity <facingEntity> [<facingAnchor>]/rotate target facing <facingLocation>'
+			});
+
+			const result = await completions.getPossibleCompletions('rotate <target> facing ');
+			expect(result).toContain('entity');
+			expect(result).toContain('<facingLocation>');
+			expect(commandFunction).toHaveBeenCalledWith('help rotate target facing');
+
+			const result1 = await completions.getPossibleCompletions('rotate <target> facing entity ');
+			expect(result1).toContain('<facingEntity>');
+		});
+	});
+
+	describe('ride command', () => {
+		it('should suggest <vehicle> for "ride <target> mount "', async () => {
+			const { completions, commandFunction } = createCompletions({
+				help: '/ride <target> (mount|dismount)',
+				'help ride': '/ride <target> (mount|dismount)',
+				'help ride target mount': '/ride target mount <vehicle>'
+			});
+
+			const result = await completions.getPossibleCompletions('ride <target> mount ');
+			expect(result).toContain('<vehicle>');
+			expect(commandFunction).toHaveBeenCalledWith('help ride target mount ');
+		});
+	});
+
 });

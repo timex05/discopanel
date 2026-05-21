@@ -2,7 +2,7 @@ package rcon
 
 import (
 	"context"
-	"strconv"
+	"fmt"
 
 	"github.com/jltobler/go-rcon"
 )
@@ -14,7 +14,7 @@ type rconResult struct {
 
 func SendCommand(ctx context.Context, RCONHost string, RCONPort int, RCONPassword string, command string) (string, error) {
 	// initialize Client
-	rconClient := rcon.NewClient("rcon://"+RCONHost+":"+strconv.Itoa(RCONPort), RCONPassword)
+	rconClient := rcon.NewClient(fmt.Sprintf("rcon://%s:%d", RCONHost, RCONPort), RCONPassword)
 
 	// run Command in a goroutine to allow for timeout handling
 	resultCh := make(chan rconResult, 1)
@@ -28,9 +28,9 @@ func SendCommand(ctx context.Context, RCONHost string, RCONPort int, RCONPasswor
 	case <-ctx.Done():
 		return "", ctx.Err()
 	case result := <-resultCh:
-		if result.err == nil {
-			return result.output, nil
+		if result.err != nil {
+			return "", result.err
 		}
-		return "", result.err
+		return result.output, nil
 	}
 }

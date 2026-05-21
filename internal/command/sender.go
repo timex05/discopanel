@@ -41,17 +41,21 @@ func (s *Sender) SendCommand(ctx context.Context, serverID string, command strin
 	}
 
 	// old docker exec command
-	fallbackExec := func(cause error) (string, error) {
-		output, fallbackErr := s.docker.ExecCommand(ctx, server.ContainerID, command)
-		if fallbackErr != nil {
-			return "", fmt.Errorf("rcon path failed: %w; fallback exec failed: %v", cause, fallbackErr)
+	dockerExec := func(cause error) (string, error) {
+		output, err := s.docker.ExecCommand(ctx, server.ContainerID, command)
+		if err != nil {
+			return "", fmt.Errorf("rcon path failed: %w; fallback exec failed: %v", cause, err)
 		}
 		return output, nil
 	}
 
 	serverCfg, err := s.store.GetServerConfig(ctx, serverID)
 	if err != nil {
-		return fallbackExec(fmt.Errorf("failed to load server config: %w", err))
+		return dockerExec(fmt.Errorf("failed to load server config: %w", err))
+	}
+
+	if serverCfg.EnableRCON != nil && *serverCfg.EnableRCON == false {
+		return dockerExec(fmt.Errorf("rcon is disabled for this server"))
 	}
 
 	var rconPort int
@@ -87,7 +91,7 @@ func (s *Sender) SendCommand(ctx context.Context, serverID string, command strin
 
 	ip, err := proxy.GetContainerIP(server.ContainerID, s.config.Docker.NetworkName)
 	if err != nil {
-		return fallbackExec(fmt.Errorf("failed to resolve container ip: %w", err))
+		return dockerExec(fmt.Errorf("failed to resolve container ip: %w", err))
 	}
 
 	// run comamand in dedicated context with timeout
@@ -96,7 +100,7 @@ func (s *Sender) SendCommand(ctx context.Context, serverID string, command strin
 	output, err := rcon.SendCommand(rconCtx, ip, rconPort, rconPassword, command)
 
 	if err != nil {
-		return fallbackExec(fmt.Errorf("rcon command failed: %w", err))
+		return dockerExec(fmt.Errorf("rcon command failed: %w", err))
 	}
 
 	return output, nil

@@ -9,8 +9,9 @@
 	import { ResizablePaneGroup, ResizablePane, ResizableHandle } from '$lib/components/ui/resizable';
 	import { Button } from '$lib/components/ui/button';
 	import { Badge } from '$lib/components/ui/badge';
+	import * as Dialog from '$lib/components/ui/dialog/index.js';
 	import { toast } from 'svelte-sonner';
-	import { Terminal, Send, Loader2, Download, Upload, Trash2, RefreshCw, Wifi, WifiOff, AlertCircle } from '@lucide/svelte';
+	import { Terminal, Send, Loader2, Download, Upload, Trash2, RefreshCw, Wifi, WifiOff, Info, AlertCircle } from '@lucide/svelte';
 	import * as Tooltip from '$lib/components/ui/tooltip/index.js';
 	import AnsiToHtml from 'ansi-to-html';
 	import { enumToString, getStringForEnum } from '$lib/utils';
@@ -37,6 +38,7 @@
 	let scrollAreaRef = $state<HTMLDivElement | null>(null);
 	let tailLines = $state(500);
 	const MAX_LOG_ENTRIES = 5000;
+	const commandCompletionDocsUrl = 'https://minecraft.wiki/w/Commands';
 
 	// Ws state
 	let wsConnectionState = $derived(wsClient.state.connectionState);
@@ -284,6 +286,16 @@
 	let forceDisabled = $state(false);
 	let enabled = $state(false);
   	let open = $state(false);
+	let showCommandCompletionInfo = $state(false);
+	let commandCompletionBaseCommands = $state<string[]>([]);
+
+	function getCommandCompletionBaseCommandUrl(baseCommand: string) {
+		return `${commandCompletionDocsUrl}/${encodeURIComponent(baseCommand)}`;
+	}
+
+	function getCommandCompletionAvailabilityLabel() {
+		return forceDisabled ? 'Unavailable' : 'Available';
+	}
 
 	type SuggestionItem = {
 		value: string;
@@ -293,11 +305,12 @@
 	let activeSuggestionIndex = $state(-1);
 
 	let commandDropdown = $state<HTMLElement | null>(null);
-	let commandInput = $state<HTMLInputElement | null>(null);
+	let commandInput = $state<HTMLInputElement>();
 
 	const mappings = {
-		'<gamemode>': ['survival', 'creative', 'spectator'],
+		'<gamemode>': ['adventure', 'survival', 'creative', 'spectator'],
 		'<targets>': ['@a', '@e','@n', '@s', '@p', '@r'],
+		'[<targets>]': ['@a', '@e','@n', '@s', '@p', '@r'],
 		'<target>': ['@a', '@e', '@s', '@p', '@r']
 	};
 
@@ -313,7 +326,6 @@
 
 	async function initCommandCompletion() {
 		// Reset state
-
 		completions = undefined;
 
 		recentCommands = [];
@@ -322,12 +334,12 @@
 		forceDisabled = false;
 		enabled = false;
 		open = false;
+		commandCompletionBaseCommands = [];
 
 		suggestions = [];
 		activeSuggestionIndex = -1;
 
 		commandDropdown = null;
-		commandInput = null;
 
 		try {
 			// check mod-loader compatibility
@@ -338,7 +350,7 @@
 			if (!modLoaderCompatible) {
 				forceDisabled = true;
 			}
-
+			enabled = true;
 			if(!forceDisabled && server.status === ServerStatus.RUNNING){
 				await fetchCompletions();
 				enabled = true;
@@ -369,6 +381,7 @@
 			const visibleSuggestions = (await completions.getPossibleCompletions(command)).filter((suggestion) => suggestion.trim() !== '');
 			suggestions = visibleSuggestions.map((value) => ({ value, ref: null }));
 			activeSuggestionIndex = suggestions.length > 0 ? 0 : -1;
+			console.log('Updated suggestions:', visibleSuggestions);
 		}
 	}
 
@@ -380,17 +393,18 @@
 			mappings,
 			async (command) => await sendCommandWithReturn(command)
 		);
+		commandCompletionBaseCommands = completions.getBaseCommands();
 
 	}
 	
   	async function applyCompletion(suggestion: string) {
 		if(command.split(' ').length <= 1){
-			command = suggestion + " ";
+			command = suggestion;
   	  		open = true;
 			await updateSuggestions();
 		} else {
 			const parts = command.split(' ');
-			let newCommand = parts.slice(0, -1).concat(suggestion).join(' ') + " ";
+			let newCommand = parts.slice(0, -1).concat(suggestion).join(' ');
 			command = newCommand;
 	  		open = true;
 			await updateSuggestions();
@@ -429,6 +443,7 @@
 			activeSuggestionIndex = -1;
 			commandInput?.focus();
 			if(e.key.length === 1) command += e.key;
+			updateSuggestions();
 		}
 	}
 
@@ -530,6 +545,19 @@
 				{/if}
 				</div>
 				<div class="flex items-center gap-1">
+					<Tooltip.Root>
+						<Tooltip.Trigger>
+							<Button
+								size="sm"
+								variant="ghost"
+								onclick={() => {showCommandCompletionInfo = true; if(!completions && server.status === ServerStatus.RUNNING) fetchCompletions();}}
+								class="h-7 w-7 p-0 text-zinc-400 hover:text-white"
+							>
+								<Info class="h-3 w-3" />
+							</Button>
+						</Tooltip.Trigger>
+						<Tooltip.Content>Command completion info</Tooltip.Content>
+					</Tooltip.Root>
 					<Tooltip.Root>
 						<Tooltip.Trigger>
 							<Button
@@ -674,25 +702,11 @@
 	>
 		<Send class="h-3 w-3" />
 	</Button>
-</div>
+		</div>
 
 		<div class="flex shrink-0 items-center justify-between px-3 pb-2 text-xs text-zinc-500">
 			<div class="flex items-center gap-4">
-				{#if forceDisabled}
-				<Tooltip.Root>
-					<Tooltip.Trigger>
-						<label class="flex items-center gap-2">
-							<AlertCircle class="h-4 w-4 text-red-500" />
-							Command-Completion
-						</label>
-					</Tooltip.Trigger>
-					<Tooltip.Content side="top">
-						<div class="text-xs">
-							<div>Command-Completion does not support:</div>
-						<div>{enumToString(ModLoader, server.modLoader)} {server.mcVersion}</div>						</div>
-					</Tooltip.Content>
-				</Tooltip.Root>
-				{:else}
+				{#if !forceDisabled}
 					<label class="flex items-center gap-2">
 						<input type="checkbox" bind:checked={enabled} disabled={forceDisabled} class="h-3 w-3 rounded" />
 						Command-Completion
@@ -722,6 +736,79 @@
 			</div>
 		</div>
 	</div>
+
+	<Dialog.Root bind:open={showCommandCompletionInfo}>
+		<Dialog.Content class="max-w-2xl max-h-[90vh] overflow-y-auto">
+			<Dialog.Header>
+				<Dialog.Title>Command Completion</Dialog.Title>
+				<Dialog.Description>
+					{forceDisabled
+						? 'Command completion is disabled on this server. See the reason below.'
+						: 'Browse the available base commands and open the docs.'}
+				</Dialog.Description>
+			</Dialog.Header>
+
+			<div class="space-y-4 py-4">
+				<div class="grid gap-2 rounded-lg border border-zinc-800 bg-zinc-950/60 p-4 sm:grid-cols-3">
+					<div>
+						<p class="text-xs uppercase tracking-wide text-zinc-500">Modloader</p>
+						<p class="mt-1 text-sm text-zinc-200">{enumToString(ModLoader, server.modLoader)}</p>
+					</div>
+					<div>
+						<p class="text-xs uppercase tracking-wide text-zinc-500">Version</p>
+						<p class="mt-1 text-sm text-zinc-200">{server.mcVersion}</p>
+					</div>
+					<div>
+						<p class="text-xs uppercase tracking-wide text-zinc-500">Status</p>
+						<p class="mt-1 text-sm font-medium {forceDisabled ? 'text-red-400' : 'text-green-400'}">
+							{getCommandCompletionAvailabilityLabel()}
+						</p>
+					</div>
+				</div>
+
+				{#if forceDisabled}
+					<div class="space-y-2 rounded-lg border border-red-500/20 bg-red-500/5 p-4">
+						<div class="flex items-center gap-2 text-sm font-medium text-red-400">
+							<AlertCircle class="h-4 w-4" />
+							Disabled for this server
+						</div>
+						<p class="text-sm text-zinc-300">
+							Reason: {enumToString(ModLoader, server.modLoader)} {server.mcVersion} is not supported.
+						</p>
+					</div>
+				{:else}
+					<div class="space-y-2">
+						<p class="text-sm font-medium text-foreground">Commands</p>
+						<p class="text-sm text-muted-foreground">Click a command to open the docs.</p>
+						<div class="grid max-h-[50vh] gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
+							{#each commandCompletionBaseCommands as baseCommand}
+								<a
+									href={getCommandCompletionBaseCommandUrl(baseCommand)}
+									target="_blank"
+									rel="noopener noreferrer"
+									class="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-sm text-zinc-200 transition hover:border-zinc-500 hover:bg-zinc-800"
+								>
+									{baseCommand}
+								</a>
+							{/each}
+						</div>
+						{#if commandCompletionBaseCommands.length === 0}
+							<p class="text-sm text-zinc-500">No commands loaded yet.</p>
+						{/if}
+					</div>
+				{/if}
+
+				<div class="flex justify-end gap-2 pt-2">
+					<Button variant="outline" size="sm" onclick={() => (showCommandCompletionInfo = false)}>
+						Close
+					</Button>
+					<Button href={commandCompletionDocsUrl} target="_blank" rel="noopener noreferrer" size="sm">
+						Open docs
+					</Button>
+				</div>
+			</div>
+		</Dialog.Content>
+	</Dialog.Root>
 </ResizablePaneGroup>
 
 <style>
