@@ -37,6 +37,7 @@ export default defineConfig({
 								{ label: 'Discord', slug: 'guides/oidc/discord' },
 							],
 						},
+						{ label: 'Command Completion', slug: 'command-completion' },
 					],
 				},
 				{ label: 'FAQ', slug: 'faq' },

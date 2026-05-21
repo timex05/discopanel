@@ -11,7 +11,7 @@
 	import { Badge } from '$lib/components/ui/badge';
 	import * as Dialog from '$lib/components/ui/dialog/index.js';
 	import { toast } from 'svelte-sonner';
-	import { Terminal, Send, Loader2, Download, Upload, Trash2, RefreshCw, Wifi, WifiOff, Info, AlertCircle } from '@lucide/svelte';
+	import { Terminal, Send, Loader2, Download, Upload, Trash2, RefreshCw, Wifi, WifiOff, Info, AlertCircle, ExternalLink } from '@lucide/svelte';
 	import * as Tooltip from '$lib/components/ui/tooltip/index.js';
 	import AnsiToHtml from 'ansi-to-html';
 	import { enumToString, getStringForEnum } from '$lib/utils';
@@ -287,7 +287,6 @@
 	let enabled = $state(false);
   	let open = $state(false);
 	let showCommandCompletionInfo = $state(false);
-	let commandCompletionBaseCommands = $state<string[]>([]);
 
 	function getCommandCompletionBaseCommandUrl(baseCommand: string) {
 		return `${commandCompletionDocsUrl}/${encodeURIComponent(baseCommand)}`;
@@ -334,7 +333,6 @@
 		forceDisabled = false;
 		enabled = false;
 		open = false;
-		commandCompletionBaseCommands = [];
 
 		suggestions = [];
 		activeSuggestionIndex = -1;
@@ -393,8 +391,6 @@
 			mappings,
 			async (command) => await sendCommandWithReturn(command)
 		);
-		commandCompletionBaseCommands = completions.getBaseCommands();
-
 	}
 	
   	async function applyCompletion(suggestion: string) {
@@ -743,7 +739,7 @@
 				<Dialog.Title>Command Completion</Dialog.Title>
 				<Dialog.Description>
 					{forceDisabled
-						? 'Command completion is disabled on this server. See the reason below.'
+						? 'Command completion is disabled on this server.'
 						: 'Browse the available base commands and open the docs.'}
 				</Dialog.Description>
 			</Dialog.Header>
@@ -773,29 +769,36 @@
 							Disabled for this server
 						</div>
 						<p class="text-sm text-zinc-300">
-							Reason: {enumToString(ModLoader, server.modLoader)} {server.mcVersion} is not supported.
+							Reason: {enumToString(ModLoader, server.modLoader)} {server.mcVersion} is not supported. 
+							<a href="https://docs.discopanel.app/command-completion/" target="_blank" rel="noopener noreferrer" class="text-blue-400 hover:underline">
+								View supported Mod Loaders and Minecraft versions.
+							</a>
 						</p>
 					</div>
 				{:else}
 					<div class="space-y-2">
 						<p class="text-sm font-medium text-foreground">Commands</p>
+						{#if (completions)}
 						<p class="text-sm text-muted-foreground">Click a command to open the docs.</p>
-						<div class="grid max-h-[50vh] gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
-							{#each commandCompletionBaseCommands as baseCommand}
+						<div class="grid max-h-[40vh] gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
+							{#each completions?.getBaseCommands() as baseCommand}
 								<a
 									href={getCommandCompletionBaseCommandUrl(baseCommand)}
 									target="_blank"
 									rel="noopener noreferrer"
 									class="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-sm text-zinc-200 transition hover:border-zinc-500 hover:bg-zinc-800"
 								>
+								<ExternalLink class="h-3 w-3 inline-block mr-1" />
 									{baseCommand}
 								</a>
 							{/each}
 						</div>
-						{#if commandCompletionBaseCommands.length === 0}
-							<p class="text-sm text-zinc-500">No commands loaded yet.</p>
+						{:else}
+						<p class="text-sm text-muted-foreground">No commands loaded yet.</p>
 						{/if}
 					</div>
+
+
 				{/if}
 
 				<div class="flex justify-end gap-2 pt-2">
@@ -803,7 +806,8 @@
 						Close
 					</Button>
 					<Button href={commandCompletionDocsUrl} target="_blank" rel="noopener noreferrer" size="sm">
-						Open docs
+						<ExternalLink class="h-4 w-4" />
+						View Vanilla Commands
 					</Button>
 				</div>
 			</div>
