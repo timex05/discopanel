@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { onMount, untrack } from 'svelte';
+	import { browser } from '$app/environment';
 	import { rpcClient, silentCallOptions } from '$lib/api/rpc-client';
 	import { serversStore } from '$lib/stores/servers';
 	import { goto } from '$app/navigation';
@@ -48,9 +49,41 @@
 	}
 
 	onMount(() => {
+
+		// If a `tab` query param is present, restore it on first load
+		if (browser) {
+			try {
+				const params = new URLSearchParams(window.location.search);
+				const tabParam = params.get('tab');
+				const allowed = ['overview','console','configuration','mods','modules','files','tasks','routing'];
+				if (tabParam && allowed.includes(tabParam)) {
+					activeTab = tabParam;
+				}
+			} catch (e) {
+				// ignore
+			}
+		}
+
 		return () => {
 			if (interval) clearInterval(interval);
 		};
+	});
+
+
+	// Update URL query parameter when activeTab changes, without adding history entries
+	$effect(() => {
+		if (!browser) return;
+		try {
+			const url = new URL(window.location.href);
+			if (activeTab) {
+				url.searchParams.set('tab', activeTab);
+			} else {
+				url.searchParams.delete('tab');
+			}
+			window.history.replaceState({}, '', url.toString());
+		} catch (e) {
+			// ignore
+		}
 	});
 
 	$effect(() => {
@@ -757,7 +790,7 @@
 
 		</div>
 
-		<Tabs value="overview" class="flex-1 flex flex-col min-h-0 gap-4" onValueChange={(value) => {
+		<Tabs value={activeTab} class="flex-1 flex flex-col min-h-0 gap-4" onValueChange={(value) => {
 			activeTab = value
 		}}>
 			<div class="shrink-0 w-full overflow-x-auto">
