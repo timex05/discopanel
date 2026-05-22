@@ -1,3 +1,5 @@
+import type Completions from "./completions";
+
 type CommandObject = {
 	command: string;
 	type: 'literal' | 'argument' | 'choice' | 'optional';
@@ -6,9 +8,15 @@ type CommandObject = {
 	isEndpoint: boolean;
 };
 
-class Completions {
+const mappings: Record<string, string[]> = {
+	'<gamemode>': ['adventure', 'survival', 'creative', 'spectator'],
+	'<targets>': ['@a', '@e','@n', '@s', '@p', '@r'],
+	'[<targets>]': ['@a', '@e','@n', '@s', '@p', '@r'],
+	'<target>': ['@a', '@e', '@s', '@p', '@r']
+};
+
+export default class VanillaCompletions implements Completions {
 	private commands: CommandObject[] = [];
-	private mappings: Record<string, string[]>;
 	private commandFunction: (command: string) => Promise<string>;
 
 	// Regex patterns for token type detection - compiled once at class level
@@ -19,16 +27,14 @@ class Completions {
 	};
 
 	constructor(
-		baseHelpString: string,
-		mappings: Record<string, string[]>,
 		commandFunction: (command: string) => Promise<string>
 	) {
-		this.commands = this.parseCommands(baseHelpString);
-		this.mappings = mappings;
+		
 		this.commandFunction = commandFunction;
 	}
 
-	public getBaseCommands(): string[] {
+	public async getBaseCommands(): Promise<string[]> {
+		if (this.commands.length === 0) this.commands = this.parseCommands(await this.commandFunction('help'));
 		return Array.from(
 			new Set(this.commands.flatMap((cmd) => [cmd.command, ...cmd.aliasses]))
 		).sort((left, right) => left.localeCompare(right));
@@ -300,9 +306,9 @@ class Completions {
 
 		// Build reverse map from concrete values to parameter names, e.g. 'survival' -> 'gamemode'
 		const reverseMap = new Map<string, string>();
-		for (const key of Object.keys(this.mappings)) {
+		for (const key of Object.keys(mappings)) {
 			const nameKey = this.stripCommandDecorators(key);
-			for (const v of this.mappings[key] ?? []) {
+			for (const v of mappings[key] ?? []) {
 				reverseMap.set(v, nameKey);
 			}
 		}
@@ -526,9 +532,9 @@ class Completions {
 
 		// Build reverse map for mappings: concrete value -> placeholder name
 		const reverseMap = new Map<string, string>();
-		for (const key of Object.keys(this.mappings)) {
+		for (const key of Object.keys(mappings)) {
 			const nameKey = this.stripCommandDecorators(key);
-			for (const v of this.mappings[key] ?? []) {
+			for (const v of mappings[key] ?? []) {
 				reverseMap.set(v, nameKey);
 			}
 		}
@@ -582,12 +588,12 @@ class Completions {
 	}
 
 	private isMappedKey(value: string): boolean {
-		return Object.prototype.hasOwnProperty.call(this.mappings, value);
+		return Object.prototype.hasOwnProperty.call(mappings, value);
 	}
 
 	private expandCompletions(completions: string[], currentToken: string): string[] {
 		const expanded = completions.flatMap((completion) => {
-			const mappedValues = this.mappings[completion] ?? [];
+			const mappedValues = mappings[completion] ?? [];
 			const filteredMappedValues = mappedValues.filter(
 				(value) => currentToken === '' || value.startsWith(currentToken)
 			);
@@ -626,6 +632,7 @@ class Completions {
 	}
 
 	public async getPossibleCompletions(input: string): Promise<string[]> {
+		if (this.commands.length === 0) this.commands = this.parseCommands(await this.commandFunction('help'));
 		const endsOnSpace: boolean = /\s$/.test(input);
 		const trimmedInput = input.trim();
 		const tokens: string[] = trimmedInput === '' ? [] : trimmedInput.split(/\s+/);
@@ -662,9 +669,9 @@ class Completions {
 			if (helpBaseCommand) {
 				// Replace concrete mapped values with their placeholder names (e.g. 'survival' -> 'gamemode')
 				const reverseMap = new Map<string, string>();
-				for (const key of Object.keys(this.mappings)) {
+				for (const key of Object.keys(mappings)) {
 					const nameKey = this.stripCommandDecorators(key);
-					for (const v of this.mappings[key] ?? []) {
+					for (const v of mappings[key] ?? []) {
 						reverseMap.set(v, nameKey);
 					}
 				}
@@ -704,7 +711,7 @@ class Completions {
 				}
 				return this.expandCompletions(
 					await this.rekursiveSearch(helpBaseCommand, tokens.slice(2), [helpCommandToken]),
-					tokens.at(-1) ?? ''
+					(tokens.length > 0 ? tokens[tokens.length - 1] : '')
 				);
 			}
 		}
@@ -714,7 +721,7 @@ class Completions {
 		// Recursively search for completions
 		return this.expandCompletions(
 			await this.rekursiveSearch(baseCommand, tokens.slice(1), [firstToken]),
-			tokens.at(-1) ?? ''
+			(tokens.length > 0 ? tokens[tokens.length - 1] : '')
 		);
 	}
 
@@ -743,9 +750,9 @@ class Completions {
 		if (tokens.length === 1) {
 			// Build reverse map for mappings: concrete value -> placeholder name
 			const reverseMap = new Map<string, string>();
-			for (const key of Object.keys(this.mappings)) {
+			for (const key of Object.keys(mappings)) {
 				const nameKey = this.stripCommandDecorators(key);
-				for (const v of this.mappings[key] ?? []) {
+				for (const v of mappings[key] ?? []) {
 					reverseMap.set(v, nameKey);
 				}
 			}
@@ -818,5 +825,3 @@ class Completions {
 		return [];
 	}
 }
-
-export default Completions;

@@ -17,7 +17,7 @@
 	import { enumToString, getStringForEnum } from '$lib/utils';
 	import { isModLoaderCompatible } from '$lib/utils/modloader-compatibility';
 	import { wsClient } from '$lib/stores/websocket.svelte';
-	import Completions  from '$lib/utils/completions';
+	import type Completions  from '$lib/command-completion/completions';
 	import { Command, CommandItem, CommandList } from './ui/command';
 
 	// Create ansi-to-html converter with proper options
@@ -279,6 +279,7 @@
 
 	// Command Completion
 	let completions = $state<Completions | undefined>(undefined);
+	let baseCommands = $state<string[]>([]);
 
 	let recentCommands: string[] = [];
 	let recentCommandIndex = -1;
@@ -306,13 +307,6 @@
 	let commandDropdown = $state<HTMLElement | null>(null);
 	let commandInput = $state<HTMLInputElement>();
 
-	const mappings = {
-		'<gamemode>': ['adventure', 'survival', 'creative', 'spectator'],
-		'<targets>': ['@a', '@e','@n', '@s', '@p', '@r'],
-		'[<targets>]': ['@a', '@e','@n', '@s', '@p', '@r'],
-		'<target>': ['@a', '@e', '@s', '@p', '@r']
-	};
-
 	async function sendCommandWithReturn(command: string): Promise<string> {
 		const request = create(SendCommandRequestSchema, {
 			id: server.id,
@@ -326,6 +320,7 @@
 	async function initCommandCompletion() {
 		// Reset state
 		completions = undefined;
+		baseCommands = [];
 
 		recentCommands = [];
 		recentCommandIndex = -1;
@@ -341,16 +336,21 @@
 
 		try {
 			// check mod-loader compatibility
-			const modLoaderCompatible = server.modLoader 
-				? await isModLoaderCompatible(server.modLoader, server.mcVersion)
-				: false;
+			const modLoaderCompatibleResult = await isModLoaderCompatible(server.modLoader, server.mcVersion);
 
-			if (!modLoaderCompatible) {
+			if (!modLoaderCompatibleResult.compatible) {
 				forceDisabled = true;
 			}
 			enabled = true;
-			if(!forceDisabled && server.status === ServerStatus.RUNNING){
-				await fetchCompletions();
+			if(!forceDisabled && server.status === ServerStatus.RUNNING && modLoaderCompatibleResult.completionClass){
+				completions = new modLoaderCompatibleResult.completionClass((command: string) => sendCommandWithReturn(command));
+				// populate cached base commands for template iteration
+				try {
+					baseCommands = await completions.getBaseCommands();
+				} catch (e) {
+					baseCommands = [];
+					console.error('Failed to load base commands', e);
+				}
 				enabled = true;
 			}
 		} catch (error) {
@@ -372,25 +372,12 @@
 
 	async function updateSuggestions() {
 		if(forceDisabled) return;
-		if(!completions && server.status === ServerStatus.RUNNING){
-			await fetchCompletions();
-		}
 		if(completions){
 			const visibleSuggestions = (await completions.getPossibleCompletions(command)).filter((suggestion) => suggestion.trim() !== '');
 			suggestions = visibleSuggestions.map((value) => ({ value, ref: null }));
 			activeSuggestionIndex = suggestions.length > 0 ? 0 : -1;
 			console.log('Updated suggestions:', visibleSuggestions);
 		}
-	}
-
-	async function fetchCompletions() {
-		if(forceDisabled) return;
-		const raw = await sendCommandWithReturn('help');
-		completions = new Completions(
-			raw,
-			mappings,
-			async (command) => await sendCommandWithReturn(command)
-		);
 	}
 	
   	async function applyCompletion(suggestion: string) {
@@ -513,9 +500,6 @@
 	async function onFocus() {
 		if(forceDisabled) return;
 		open = true; 
-		if(!completions){
-			await fetchCompletions();
-		}
 		updateSuggestions();
 	}
 
@@ -546,7 +530,7 @@
 							<Button
 								size="sm"
 								variant="ghost"
-								onclick={() => {showCommandCompletionInfo = true; if(!completions && server.status === ServerStatus.RUNNING) fetchCompletions();}}
+								onclick={() => {showCommandCompletionInfo = true; if(!completions && server.status === ServerStatus.RUNNING) initCommandCompletion();}}
 								class="h-7 w-7 p-0 text-zinc-400 hover:text-white"
 							>
 								<Info class="h-3 w-3" />
@@ -778,24 +762,24 @@
 				{:else}
 					<div class="space-y-2">
 						<p class="text-sm font-medium text-foreground">Commands</p>
-						{#if (completions)}
-						<p class="text-sm text-muted-foreground">Click a command to open the docs.</p>
-						<div class="grid max-h-[40vh] gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
-							{#each completions?.getBaseCommands() as baseCommand}
-								<a
-									href={getCommandCompletionBaseCommandUrl(baseCommand)}
-									target="_blank"
-									rel="noopener noreferrer"
-									class="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-sm text-zinc-200 transition hover:border-zinc-500 hover:bg-zinc-800"
-								>
-								<ExternalLink class="h-3 w-3 inline-block mr-1" />
-									{baseCommand}
-								</a>
-							{/each}
-						</div>
-						{:else}
-						<p class="text-sm text-muted-foreground">No commands loaded yet.</p>
-						{/if}
+								<p class="text-sm text-muted-foreground">Click a command to open the docs.</p>
+								{#if baseCommands.length > 0}
+								<div class="grid max-h-[40vh] gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
+									{#each baseCommands as baseCommand}
+										<a
+											href={getCommandCompletionBaseCommandUrl(baseCommand)}
+											target="_blank"
+											rel="noopener noreferrer"
+											class="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-sm text-zinc-200 transition hover:border-zinc-500 hover:bg-zinc-800"
+										>
+										<ExternalLink class="h-3 w-3 inline-block mr-1" />
+											{baseCommand}
+										</a>
+									{/each}
+								</div>
+								{:else}
+								<p class="text-sm text-muted-foreground">No commands loaded yet.</p>
+								{/if}
 					</div>
 
 

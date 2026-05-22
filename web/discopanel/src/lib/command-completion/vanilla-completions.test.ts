@@ -1,8 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import Completions from './completions';
+import Completions from './vanilla-completions';
+import VanillaCompletions from './vanilla-completions';
 
-const baseHelp =
-	'/advancement (grant|revoke)/attribute <target> <attribute> (get|base|modifier)/execute (run|if|unless|as|at|store|positioned|rotated|facing|align|anchored|in|summon|on)/bossbar (add|remove|list|set|get)/clear [<targets>]/clone (<begin>|from)/damage <target> <amount> [<damageType>]/data (merge|get|remove|modify)/datapack (enable|disable|list|create)/debug (start|stop|function)/defaultgamemode <gamemode>/dialog (show|clear)/difficulty [peaceful|easy|normal|hard]/effect (clear|give)/me <action>/enchant <targets> <enchantment> [<level>]/experience (add|set|query)/xp -> experience/fill <from> <to> <block> [outline|hollow|destroy|strict|replace|keep]/fillbiome <from> <to> <biome> [replace]/forceload (add|remove|query)/function <name> [<arguments>|with]/gamemode <gamemode> [<target>]/gamerule (spawn_wandering_traders|minecraft:spawn_wandering_traders|mob_drops|minecraft:mob_drops|mob_griefing|minecraft:mob_griefing|random_tick_speed|minecraft:random_tick_speed|spawn_phantoms|minecraft:spawn_phantoms|ender_pearls_vanish_on_death|minecraft:ender_pearls_vanish_on_death|log_admin_commands|minecraft:log_admin_commands|reduced_debug_info|minecraft:reduced_debug_info|tnt_explodes|minecraft:tnt_explodes|forgive_dead_players|minecraft:forgive_dead_players|water_source_conversion|minecraft:water_source_conversion|projectiles_can_break_blocks|minecraft:projectiles_can_break_blocks|show_advancement_messages|minecraft:show_advancement_messages|limited_crafting|minecraft:limited_crafting|max_snow_accumulation_height|minecraft:max_snow_accumulation_height|block_explosion_drop_decay|minecraft:block_explosion_drop_decay|drowning_damage|minecraft:drowning_damage|max_command_forks|minecraft:max_command_forks|elytra_movement_check|minecraft:elytra_movement_check|spawn_wardens|minecraft:spawn_wardens|max_command_sequence_length|minecraft:max_command_sequence_length|player_movement_check|minecraft:player_movement_check|universal_anger|minecraft:universal_anger|lava_source_conversion|minecraft:lava_source_conversion|spawn_mobs|minecraft:spawn_mobs|command_block_output|minecraft:command_block_output|respawn_radius|minecraft:respawn_radius|advance_time|minecraft:advance_time|send_command_feedback|minecraft:send_command_feedback|block_drops|minecraft:block_drops|spawn_patrols|minecraft:spawn_patrols|natural_health_regeneration|minecraft:natural_health_regeneration|spread_vines|minecraft:spread_vines|keep_inventory|minecraft:keep_inventory|freeze_damage|minecraft:freeze_damage|spawn_monsters|minecraft:spawn_monsters|allow_entering_nether_using_portals|minecraft:allow_entering_nether_using_portals|fire_damage|minecraft:fire_damage|immediate_respawn|minecraft:immediate_respawn|max_block_modifications|minecraft:max_block_modifications|command_blocks_work|minecraft:command_blocks_work|advance_weather|minecraft:advance_weather|global_sound_events|minecraft:global_sound_events|entity_drops|minecraft:entity_drops|show_death_messages|minecraft:show_death_messages|mob_explosion_drop_decay|minecraft:mob_explosion_drop_decay|players_nether_portal_default_delay|minecraft:players_nether_portal_default_delay|spectators_generate_chunks|minecraft:spectators_generate_chunks|players_sleeping_percentage|minecraft:players_sleeping_percentage|spawner_blocks_work|minecraft:spawner_blocks_work|raids|minecraft:raids|max_entity_cramming|minecraft:max_entity_cramming|players_nether_portal_creative_delay|minecraft:players_nether_portal_creative_delay|pvp|minecraft:pvp|tnt_explosion_drop_decay|minecraft:tnt_explosion_drop_decay|locator_bar|minecraft:locator_bar|fall_damage|minecraft:fall_damage|fire_spread_radius_around_player|minecraft:fire_spread_radius_around_player)/give <targets> <item> [<count>]/help [<command>]/item (replace|modify)/kick <targets> [<reason>]/kill [<targets>]/list [uuids]/locate (structure|biome|poi)/loot (replace|insert|give|spawn)/msg <targets> <message>/tell -> msg/w -> msg/swing [<targets>]/particle <name> [<pos>]/place (feature|jigsaw|structure|template)/playsound <sound> [master|music|record|weather|block|hostile|neutral|player|ambient|voice|ui]/random ';
 
 describe('Completions', () => {
 	// Helper to create a Completions instance with mocked help responses
@@ -11,16 +10,9 @@ describe('Completions', () => {
 			return helpResponses[command] ?? '';
 		});
 
-		const baseHelpString = helpResponses['help'] ?? '';
-		const mappings = {
-			'<gamemode>': ['survival', 'creative', 'spectator'],
-			'<targets>': ['@a', '@e', '@n', '@s', '@p', '@r'],
-			'[<targets>]': ['@a', '@e', '@n', '@s', '@p', '@r'],
-			'<target>': ['@a', '@e', '@s', '@p', '@r']
-		};
 
 		return {
-			completions: new Completions(baseHelpString, mappings, commandFunction),
+			completions: new VanillaCompletions(commandFunction),
 			commandFunction
 		};
 	}
@@ -28,7 +20,7 @@ describe('Completions', () => {
 	describe('Basic command completion', () => {
 		it('should complete top-level commands', async () => {
 			const { completions } = createCompletions({
-				help: baseHelp
+				'help': '/clear [<targets>]'
 			});
 
 			const result = await completions.getPossibleCompletions('c');
@@ -37,7 +29,7 @@ describe('Completions', () => {
 
 		it('should complete with subcommands', async () => {
 			const { completions } = createCompletions({
-				help: '/clear [<targets>]',
+				'help': '/clear [<targets>]',
 				'help clear': '/clear [<targets>] [<item>] [<maxCount>]'
 			});
 
@@ -47,7 +39,7 @@ describe('Completions', () => {
 
 		it('should expose sorted base commands and aliases', () => {
 			const { completions } = createCompletions({
-				help: '/experience/xp -> experience/alpha'
+				'help': '/experience/xp -> experience/alpha'
 			});
 
 			expect(completions.getBaseCommands()).toEqual(['alpha', 'experience', 'xp']);
@@ -56,7 +48,7 @@ describe('Completions', () => {
 
 	it('should suggest bossbar set <id> color choices', async () => {
 		const { completions, commandFunction } = createCompletions({
-			help: '/bossbar (add|remove|list|set|get)',
+			'help': '/bossbar (add|remove|list|set|get)',
 			'help bossbar set': '/bossbar set <id> (name|color|style|value|max|visible|players)',
 			'help bossbar set id': '/bossbar set id name <name>/bossbar set id color (pink|blue|red|green|yellow|purple|white)/bossbar set id style (progress|notched_6|notched_10|notched_12|notched_20)/bossbar set id value <value>/bossbar set id max <max>/bossbar set id visible <visible>/bossbar set id players [<targets>]',
 			'help bossbar set id color': '/bossbar set id color pink/bossbar set id color blue/bossbar set id color red/bossbar set id color green/bossbar set id color yellow/bossbar set id color purple/bossbar set id color white',
@@ -70,7 +62,7 @@ describe('Completions', () => {
 	describe('Help output with decorators', () => {
 		it('should handle (grant|revoke) choice syntax', async () => {
 			const { completions, commandFunction } = createCompletions({
-				help: '/advancement',
+				'help': '/advancement',
 				'help advancement': '/advancement (grant|revoke) <targets>'
 			});
 
@@ -81,7 +73,7 @@ describe('Completions', () => {
 
 		it('should handle optional [<param>] syntax', async () => {
 			const { completions, commandFunction } = createCompletions({
-				help: '/clear',
+				'help': '/clear',
 				'help clear': '/clear [<targets>] [<item>] [<maxCount>]'
 			});
 
@@ -93,7 +85,7 @@ describe('Completions', () => {
 	describe('advancement from', () => {
 		it('should handle advancement', async () => {
 			const { completions, commandFunction } = createCompletions({
-				help: '/advancement (grant|revoke)',
+				'help': '/advancement (grant|revoke)',
 				'help advancement grant': '/advancement grant <targets> (only|from|until|through|everything)',
 				'help advancement grant targets from': '/advancement grant targets from <advancement>',
 				'help advancement grant targets from advancement': ''
@@ -110,7 +102,7 @@ describe('Completions', () => {
 	describe('advancement through', () => {
 		it('should handle advancement', async () => {
 			const { completions, commandFunction } = createCompletions({
-				help: '/advancement (grant|revoke)',
+				'help': '/advancement (grant|revoke)',
 				'help advancement grant': '/advancement grant <targets> (only|from|until|through|everything)',
 				'help advancement grant targets through': '/advancement grant targets through <advancement>',
 				'help advancement grant targets through advancement': ''
@@ -127,7 +119,7 @@ describe('Completions', () => {
 	describe('attribute ', () => {
 		it('should handle attribute', async () => {
 			const { completions, commandFunction } = createCompletions({
-				help: '/attribute <target> <attribute> (get|base|modifier)',
+				'help': '/attribute <target> <attribute> (get|base|modifier)',
 				'help attribute target attribute get': '/attribute target attribute get <attribute> (get|base|modifier)' // cycle detection
 			});
 
@@ -138,7 +130,7 @@ describe('Completions', () => {
 
 		it('should handle attribute base generically', async () => {
 			const { completions, commandFunction } = createCompletions({
-				help: '/attribute <target> <attribute> (get|base|modifier)',
+				'help': '/attribute <target> <attribute> (get|base|modifier)',
 				'help attribute target attribute base': '/attribute target attribute base <attribute> (get|base|modifier)'
 			});
 
@@ -149,7 +141,7 @@ describe('Completions', () => {
 
 		it('should handle attribute modifier generically', async () => {
 			const { completions, commandFunction } = createCompletions({
-				help: '/attribute <target> <attribute> (get|base|modifier)',
+				'help': '/attribute <target> <attribute> (get|base|modifier)',
 				'help attribute target attribute modifier': '/attribute target attribute modifier <attribute> (get|base|modifier)'
 			});
 
@@ -162,7 +154,7 @@ describe('Completions', () => {
 	describe('generic cycle detection', () => {
 		it('should ignore repeated command tokens for any command', async () => {
 			const { completions, commandFunction } = createCompletions({
-				help: '/custom <first> <second> <third>',
+				'help': '/custom <first> <second> <third>',
 				'help custom first second': '/custom first second <first> <second> <third>'
 			});
 
@@ -174,7 +166,7 @@ describe('Completions', () => {
 
 	it('should not treat choice->argument sequences as cycles (locate biome)', async () => {
 		const { completions, commandFunction } = createCompletions({
-			help: '/locate (structure|biome|poi)',
+			'help': '/locate (structure|biome|poi)',
 			'help locate biome': '/locate biome <biome>'
 		});
 
@@ -185,7 +177,7 @@ describe('Completions', () => {
 
 	it('should treat literal->argument repetition as cycle (defaultgamemode)', async () => {
 		const { completions, commandFunction } = createCompletions({
-			help: '/defaultgamemode <gamemode>',
+			'help': '/defaultgamemode <gamemode>',
 			'help defaultgamemode gamemode': '/defaultgamemode gamemode <gamemode>'
 		});
 
@@ -196,7 +188,7 @@ describe('Completions', () => {
 
 	it('should not probe optionals like [ips|players] for banlist', async () => {
 		const { completions, commandFunction } = createCompletions({
-			help: '/banlist [ips|players]',
+			'help': '/banlist [ips|players]',
 			'help banlist': '/banlist [ips]/banlist [players]',
 			'help banlist ips': '',
 		});
@@ -212,7 +204,7 @@ describe('Completions', () => {
 	describe('Real values instead of placeholders', () => {
 		it('should handle real player name instead of <targets>', async () => {
 			const { completions } = createCompletions({
-				help: '/clear',
+				'help': '/clear',
 				'help clear': '/clear [<targets>] [<item>]',
 				'help clear timex05': '/clear timex05 [<item>] [<maxCount>]'
 			});
@@ -225,7 +217,7 @@ describe('Completions', () => {
 
 		it('should handle multiple real values', async () => {
 			const { completions, commandFunction } = createCompletions({
-				help: '/clear',
+				'help': '/clear',
 				'help clear': '/clear [<targets>] [<item>]',
 				'help clear timex05': '/clear timex05 [<item>] [<maxCount>]',
 				'help clear timex05 applea 64': '/clear timex05 applea 64 [<item>] [<maxCount>]'
@@ -241,9 +233,9 @@ describe('Completions', () => {
 	describe('Dynamic targets from list command', () => {
 		it('should include online player names when <target>/<targets> is present', async () => {
 			const { completions } = createCompletions({
-				help: '/clear',
+				'help': '/clear',
 				'help clear': '/clear [<targets>] [<item>] [<maxCount>]',
-				list: 'There are 1 of a max of 20 players online: timex05, playerb, '
+				'list': 'There are 1 of a max of 20 players online: timex05, playerb, '
 			});
 
 			const result = await completions.getPossibleCompletions('clear ');
@@ -265,12 +257,7 @@ describe('Completions', () => {
 				return '';
 			});
 
-			const completions = new Completions(
-				'/clear',
-				{
-					'<gamemode>': ['survival', 'creative', 'spectator'],
-					'<targets>': ['@a', '@e', '@s', '@p', '@r']
-				},
+			const completions = new VanillaCompletions(
 				commandFunction
 			);
 
@@ -289,7 +276,7 @@ describe('Completions', () => {
 	describe('Repeated optional tails should be ignored', () => {
 		it('should ignore help output with repeated parameter names', async () => {
 			const { completions, commandFunction } = createCompletions({
-				help: '/clear',
+				'help': '/clear',
 				'help clear': '/clear [<targets>] [<item>] [<maxCount>]',
 				'help clear targets item maxCount':
 					'/clear targets item maxCount [<targets>] [<item>] [<maxCount>]'
@@ -303,7 +290,7 @@ describe('Completions', () => {
 
 		it('should ignore optional-only tail when all param names already exist', async () => {
 			const { completions } = createCompletions({
-				help: '/advancement grant',
+				'help': '/advancement grant',
 				'help advancement grant': '/advancement grant <targets> only <advancement>',
 				'help advancement grant timex05': '/advancement grant timex05 only <advancement>',
 				'help advancement grant timex05 only advancement':
@@ -321,7 +308,7 @@ describe('Completions', () => {
 	describe('Aliases', () => {
 		it('should handle command aliases', async () => {
 			const { completions, commandFunction } = createCompletions({
-				help: '/experience /xp -> experience'
+				'help': '/experience /xp -> experience'
 			});
 
 			const result = await completions.getPossibleCompletions('xp');
@@ -332,7 +319,7 @@ describe('Completions', () => {
 	describe('Choice syntax with pipes', () => {
 		it('should parse (option1|option2|option3) correctly', async () => {
 			const { completions, commandFunction } = createCompletions({
-				help: '/gamemode',
+				'help': '/gamemode',
 				'help gamemode': '/gamemode (survival|creative|adventure|spectator) [<targets>]'
 			});
 
@@ -347,7 +334,7 @@ describe('Completions', () => {
 	describe('Complex nested commands', () => {
 		it('should handle /execute (run|if|unless|as|at) with further expansion', async () => {
 			const { completions, commandFunction } = createCompletions({
-				help: '/execute',
+				'help': '/execute',
 				'help execute': '/execute (run|if|unless|as|at|store|positioned|rotated)',
 				'help execute run': '/execute run <command>',
 				'help execute run give': '/execute run give <targets> <item>'
@@ -365,7 +352,7 @@ describe('Completions', () => {
 	describe('Edge cases', () => {
 		it('should handle empty help output as endpoint', async () => {
 			const { completions } = createCompletions({
-				help: '/custom',
+				'help': '/custom',
 				'help custom': ''
 			});
 
@@ -375,7 +362,7 @@ describe('Completions', () => {
 
 		it('should handle help output that is identical to input (no expansion)', async () => {
 			const { completions } = createCompletions({
-				help: '/custom',
+				'help': '/custom',
 				'help custom': '/custom' // No new tokens
 			});
 
@@ -385,7 +372,7 @@ describe('Completions', () => {
 
 		it('should handle whitespace-only help decorators', async () => {
 			const { completions } = createCompletions({
-				help: '/test',
+				'help': '/test',
 				'help test': '/test [ ] ( ) < >'
 			});
 
@@ -397,7 +384,7 @@ describe('Completions', () => {
 	describe('rotate command', () => {
 		it('should suggest facingEntity and facingLocation for "rotate <target> facing "', async () => {
 			const { completions, commandFunction } = createCompletions({
-				help: '/rotate <target> (<rotation>|facing)',
+				'help': '/rotate <target> (<rotation>|facing)',
 				'help rotate': '/rotate <target> (<rotation>|facing)',
 				'help rotate target facing': '/rotate target facing entity <facingEntity> [<facingAnchor>]/rotate target facing <facingLocation>'
 			});
@@ -415,7 +402,7 @@ describe('Completions', () => {
 	describe('ride command', () => {
 		it('should suggest <vehicle> for "ride <target> mount "', async () => {
 			const { completions, commandFunction } = createCompletions({
-				help: '/ride <target> (mount|dismount)',
+				'help': '/ride <target> (mount|dismount)',
 				'help ride': '/ride <target> (mount|dismount)',
 				'help ride target mount': '/ride target mount <vehicle>'
 			});
