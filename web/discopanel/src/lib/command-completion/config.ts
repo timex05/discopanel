@@ -5,7 +5,7 @@ import { ModLoader } from '$lib/proto/discopanel/v1/common_pb';
 
 export type CompletionClass = new (commandFunction: (command: string) => Promise<string>) => Completions;
 
-export interface VersionRange {
+export interface VersionRange{
     min: string;
     max: string;
     completion: CompletionClass;

@@ -41,8 +41,8 @@ export default class VanillaCompletions implements Completions {
 	}
 
 	private parseCommands(raw: string): CommandObject[] {
-		let COMMANDS: CommandObject[] = [];
-		let aliases: Map<string, string> = new Map();
+		const COMMANDS: CommandObject[] = [];
+		const aliases: Map<string, string> = new Map();
 
 		const commands: string[] = raw.split('/').filter((cmd) => cmd.trim());
 
@@ -121,7 +121,7 @@ export default class VanillaCompletions implements Completions {
 		}
 
 		// Ansonsten rekursiv in alle Subcommands gehen und Blätter sammeln
-		let childs: CommandObject[] = [];
+		const childs: CommandObject[] = [];
 		commandObject.subcommands.forEach((element) => {
 			childs.push(...this.getChilds(element));
 		});
@@ -142,7 +142,7 @@ export default class VanillaCompletions implements Completions {
 	}
 
 	private isDecoratedToken(token: string): boolean {
-		return /^[<\[(]/.test(token);
+		return /^[<[(]/.test(token);
 	}
 
 	private createCommandObject(token: string): CommandObject {
@@ -232,7 +232,7 @@ export default class VanillaCompletions implements Completions {
 	private stripCommandDecorators(command: string): string {
 		// Remove only the decorator characters but keep choice separators like '|'
 		// e.g. '(grant|revoke)' -> 'grant|revoke'
-		return command.replace(/[<>\[\]\(\)]/g, '').trim();
+		return command.replace(/[<>[]()]/g, '').trim();
 	}
 
 	private normalizeComparisonToken(token: string): string {
@@ -301,7 +301,6 @@ export default class VanillaCompletions implements Completions {
 			return false;
 		}
 
-		const firstTailTokenName = this.stripCommandDecorators(tailTokens[0]);
 		const currentCommandRawTokens = this.tokenizeCommand(currentCommand ?? '');
 
 		// Build reverse map from concrete values to parameter names, e.g. 'survival' -> 'gamemode'
@@ -421,8 +420,8 @@ export default class VanillaCompletions implements Completions {
 		// (kept minimal to avoid excessive noise in other contexts)
 		try {
 			// eslint-disable-next-line no-console
-			console.debug && console.debug(`[Completions] help-> ${command} => ${helpOutput}`);
-		} catch (e) {
+			console.debug(`[Completions] help-> ${command} => ${helpOutput}`);
+		} catch ( _ ) {
 			/* ignore */
 		}
 
@@ -527,7 +526,7 @@ export default class VanillaCompletions implements Completions {
 		currentToken: string
 	): Promise<string[]> {
 		const output: string[] = [];
-		const isParameterToken = /^[<\[\(]/.test(currentToken);
+		const isParameterToken = /^[<[(]/.test(currentToken);
 		let hasTargetPlaceholder = false;
 
 		// Build reverse map for mappings: concrete value -> placeholder name
@@ -776,8 +775,10 @@ export default class VanillaCompletions implements Completions {
 					// DEBUG
 					try {
 						// eslint-disable-next-line no-console
-						console.debug && console.debug(`[Completions DEBUG] probe -> ${probe} => '${helpOut}'`);
-					} catch (e) {}
+						console.debug(`[Completions DEBUG] probe -> ${probe} => '${helpOut}'`);
+					} catch ( _ ) {
+						/* ignore */
+					}
 					if (helpOut === '') {
 						const trimmedProbe = this.buildHelpCommand(`${currentCommand}`, false);
 						if (trimmedProbe !== probe) {
@@ -785,8 +786,10 @@ export default class VanillaCompletions implements Completions {
 							// DEBUG
 							try {
 								// eslint-disable-next-line no-console
-								console.debug && console.debug(`[Completions DEBUG] probe -> ${trimmedProbe} => '${helpOut}'`);
-							} catch (e) {}
+								console.debug(`[Completions DEBUG] probe -> ${trimmedProbe} => '${helpOut}'`);
+							} catch ( _ ) {
+								/* ignore */
+							}
 						}
 					}
 					if (helpOut === '') return [];
