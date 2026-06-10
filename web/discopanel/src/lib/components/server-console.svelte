@@ -1,20 +1,24 @@
 <script lang="ts">
-	import { onDestroy, untrack } from 'svelte';
+	import { onDestroy, onMount, untrack } from 'svelte';
 	import { rpcClient } from '$lib/api/rpc-client';
 	import { create } from '@bufbuild/protobuf';
 	import type { Server } from '$lib/proto/discopanel/v1/common_pb';
-	import { ServerStatus } from '$lib/proto/discopanel/v1/common_pb';
+	import { ModLoader, ServerStatus } from '$lib/proto/discopanel/v1/common_pb';
 	import type { LogEntry } from '$lib/proto/discopanel/v1/server_pb';
 	import { GetServerLogsRequestSchema, ClearServerLogsRequestSchema, SendCommandRequestSchema, UploadToMCLogsRequestSchema } from '$lib/proto/discopanel/v1/server_pb';
 	import { ResizablePaneGroup, ResizablePane, ResizableHandle } from '$lib/components/ui/resizable';
 	import { Button } from '$lib/components/ui/button';
 	import { Badge } from '$lib/components/ui/badge';
+	import * as Dialog from '$lib/components/ui/dialog/index.js';
 	import { toast } from 'svelte-sonner';
-	import { Terminal, Send, Loader2, Download, Upload, Trash2, RefreshCw, Wifi, WifiOff } from '@lucide/svelte';
+	import { Terminal, Send, Loader2, Download, Upload, Trash2, RefreshCw, Wifi, WifiOff, Info, AlertCircle, ExternalLink } from '@lucide/svelte';
 	import * as Tooltip from '$lib/components/ui/tooltip/index.js';
 	import AnsiToHtml from 'ansi-to-html';
-	import { getStringForEnum } from '$lib/utils';
+	import { enumToString, getStringForEnum } from '$lib/utils';
+	import { isModLoaderCompatible } from '$lib/utils/modloader-compatibility';
 	import { wsClient } from '$lib/stores/websocket.svelte';
+	import type Completions  from '$lib/command-completion/completions';
+	import { Command, CommandItem, CommandList } from './ui/command';
 
 	// Create ansi-to-html converter with proper options
 	const ansiConverter = new AnsiToHtml({
@@ -34,6 +38,7 @@
 	let scrollAreaRef = $state<HTMLDivElement | null>(null);
 	let tailLines = $state(500);
 	const MAX_LOG_ENTRIES = 5000;
+	const commandCompletionDocsUrl = 'https://minecraft.wiki/w/Commands';
 
 	// Ws state
 	let wsConnectionState = $derived(wsClient.state.connectionState);
@@ -75,7 +80,10 @@
 					wsClient.subscribe(currentServerId, tailLines);
 				}
 			});
+			initCommandCompletion();
 		}
+		
+
 	});
 
 	function setupWebSocket() {
@@ -183,6 +191,7 @@
 
 		loading = true;
 		const cmdToSend = command;
+		recentCommands.push(cmdToSend);
 		command = '';
 
 		// Use WebSocket if connected, otherwise fallback to RPC
@@ -266,6 +275,234 @@
 			default: return 'text-zinc-500';
 		}
 	}
+
+
+	// Command Completion
+	let completions = $state<Completions | undefined>(undefined);
+	let baseCommands = $state<string[]>([]);
+
+	let recentCommands: string[] = [];
+	let recentCommandIndex = -1;
+
+	let forceDisabled = $state(false);
+	let enabled = $state(false);
+  	let open = $state(false);
+	let showCommandCompletionInfo = $state(false);
+
+	function getCommandCompletionBaseCommandUrl(baseCommand: string) {
+		return `${commandCompletionDocsUrl}/${encodeURIComponent(baseCommand)}`;
+	}
+
+	function getCommandCompletionAvailabilityLabel() {
+		return forceDisabled ? 'Unavailable' : 'Available';
+	}
+
+	type SuggestionItem = {
+		value: string;
+		ref: HTMLElement | null;
+	};
+	let suggestions = $state<SuggestionItem[]>([]);
+	let activeSuggestionIndex = $state(-1);
+
+	let commandDropdown = $state<HTMLElement | null>(null);
+	let commandInput = $state<HTMLInputElement>();
+
+	async function sendCommandWithReturn(command: string): Promise<string> {
+		const request = create(SendCommandRequestSchema, {
+			id: server.id,
+			command: command,
+			silent: true
+		});
+		const response = await rpcClient.server.sendCommand(request);
+		return response.output;
+	}
+
+	async function initCommandCompletion() {
+		// Reset state
+		completions = undefined;
+		baseCommands = [];
+
+		recentCommands = [];
+		recentCommandIndex = -1;
+
+		forceDisabled = false;
+		enabled = false;
+		open = false;
+
+		suggestions = [];
+		activeSuggestionIndex = -1;
+
+		commandDropdown = null;
+
+		try {
+			// check mod-loader compatibility
+			const modLoaderCompatibleResult = await isModLoaderCompatible(server.modLoader, server.mcVersion);
+
+			if (!modLoaderCompatibleResult.compatible) {
+				forceDisabled = true;
+			}
+			enabled = true;
+			if(!forceDisabled && server.status === ServerStatus.RUNNING && modLoaderCompatibleResult.completionClass){
+				completions = new modLoaderCompatibleResult.completionClass((command: string) => sendCommandWithReturn(command));
+				// populate cached base commands for template iteration
+				try {
+					baseCommands = await completions.getBaseCommands();
+				} catch (e) {
+					baseCommands = [];
+					console.error('Failed to load base commands', e);
+				}
+				enabled = true;
+			}
+		} catch (error) {
+			console.error('Failed to fetch command completions:', error);
+		}
+	}
+
+	onMount(async() => {
+		await initCommandCompletion();
+	});
+
+	$effect(() => {
+		if (!open || activeSuggestionIndex < 0) return;
+
+		queueMicrotask(() => {
+			suggestions[activeSuggestionIndex]?.ref?.scrollIntoView({ block: 'nearest' });
+		});
+	});
+
+	async function updateSuggestions() {
+		if(forceDisabled) return;
+		if(completions){
+			const visibleSuggestions = (await completions.getPossibleCompletions(command)).filter((suggestion) => suggestion.trim() !== '');
+			suggestions = visibleSuggestions.map((value) => ({ value, ref: null }));
+			activeSuggestionIndex = suggestions.length > 0 ? 0 : -1;
+			console.log('Updated suggestions:', visibleSuggestions);
+		}
+	}
+	
+  	async function applyCompletion(suggestion: string) {
+		if(command.split(' ').length <= 1){
+			command = suggestion;
+  	  		open = true;
+			await updateSuggestions();
+		} else {
+			const parts = command.split(' ');
+			let newCommand = parts.slice(0, -1).concat(suggestion).join(' ');
+			command = newCommand;
+	  		open = true;
+			await updateSuggestions();
+		}
+	}
+
+	function focusDropdown(index: number) {
+		if (!suggestions.length) return;
+		activeSuggestionIndex = Math.max(0, Math.min(index, suggestions.length - 1));
+		commandDropdown?.focus();
+	}
+
+	function handleDropdownKeyDown(e: KeyboardEvent) {
+		if (!suggestions.length) return;
+
+		if (e.key === 'ArrowDown') {
+			e.preventDefault();
+			activeSuggestionIndex = activeSuggestionIndex < suggestions.length - 1 ? activeSuggestionIndex + 1 : 0;
+		} else if (e.key === 'ArrowUp') {
+			e.preventDefault();
+			activeSuggestionIndex = activeSuggestionIndex > 0 ? activeSuggestionIndex - 1 : suggestions.length - 1;
+		} else if ((e.key === 'Enter' || e.key == 'Tab') && activeSuggestionIndex >= 0) {
+			e.preventDefault();
+			applyCompletion(suggestions[activeSuggestionIndex].value);
+			commandInput?.focus();
+		} else if (e.key === 'Escape') {
+			e.preventDefault();
+			open = false;
+			recentCommandIndex = -1;
+			activeSuggestionIndex = -1;
+			commandInput?.focus();
+		}
+		else {
+			e.preventDefault()
+			recentCommandIndex = -1;
+			activeSuggestionIndex = -1;
+			commandInput?.focus();
+			if(e.key.length === 1) command += e.key;
+			updateSuggestions();
+		}
+	}
+
+	function handleCommandBlur(event: FocusEvent) {
+		if(forceDisabled) return;
+		const nextFocused = event.relatedTarget as Node | null;
+		if (nextFocused && commandDropdown?.contains(nextFocused)) {
+			return;
+		}
+		open = false;
+		recentCommandIndex = -1;
+		activeSuggestionIndex = -1;
+	}
+
+	function keyDown(e: KeyboardEvent) {
+		if (e.key === 'Enter') {
+			sendCommand();
+			suggestions = [];
+			open = false;
+			activeSuggestionIndex = -1;
+		} else if (e.key === 'Tab') {
+			if(!enabled || forceDisabled) return;
+			e.preventDefault();
+			if (suggestions.length > 0) {
+				applyCompletion(suggestions[0].value);
+			}
+		} else if (e.key === 'Escape') {
+			open = false;
+		} else if (e.key === 'ArrowUp') {
+			e.preventDefault();
+			if (open && suggestions.length > 0) {
+				focusDropdown(suggestions.length - 1);
+				return;
+			}
+			if(recentCommands.length == 0) return;
+			if(recentCommandIndex == 0) return;
+
+			if(recentCommandIndex == -1){
+				recentCommandIndex = recentCommands.length - 1;
+				command = recentCommands[recentCommandIndex];
+			} else {
+				recentCommandIndex -= 1;
+				command = recentCommands[recentCommandIndex];
+			}
+			return;
+		} else if (e.key === 'ArrowDown') {
+			e.preventDefault();
+			if (open && suggestions.length > 0) {
+				focusDropdown(0);
+				return;
+			}
+			if(recentCommands.length == 0) return;
+			if(recentCommandIndex == -1) return;
+
+			recentCommandIndex += 1;
+			if(recentCommandIndex >= recentCommands.length){
+				recentCommandIndex = -1;
+				command = '';
+			} else {
+				command = recentCommands[recentCommandIndex];
+			}
+			return;
+		
+		} else {
+			open = true;
+		}
+
+		recentCommandIndex = -1;
+	}
+
+	async function onFocus() {
+		if(forceDisabled) return;
+		open = true; 
+		updateSuggestions();
+	}
+
 </script>
 
 <ResizablePaneGroup
@@ -288,6 +525,19 @@
 				{/if}
 				</div>
 				<div class="flex items-center gap-1">
+					<Tooltip.Root>
+						<Tooltip.Trigger>
+							<Button
+								size="sm"
+								variant="ghost"
+								onclick={() => {showCommandCompletionInfo = true; if(!completions && server.status === ServerStatus.RUNNING) initCommandCompletion();}}
+								class="h-7 w-7 p-0 text-zinc-400 hover:text-white"
+							>
+								<Info class="h-3 w-3" />
+							</Button>
+						</Tooltip.Trigger>
+						<Tooltip.Content>Command completion info</Tooltip.Content>
+					</Tooltip.Root>
 					<Tooltip.Root>
 						<Tooltip.Trigger>
 							<Button
@@ -381,29 +631,68 @@
 
 	<div class="flex flex-col bg-zinc-950">
 		<div class="flex shrink-0 gap-2 border-t border-zinc-800 p-3">
-			<div class="flex flex-1 items-center gap-2">
-				<span class="font-mono text-sm text-green-500">$</span>
-				<input
-					type="text"
-					placeholder={(server.status === ServerStatus.RUNNING || server.status === ServerStatus.UNHEALTHY)? 'Enter command...' : 'Server must be running'}
-					bind:value={command}
-					disabled={server.status !== ServerStatus.RUNNING && server.status !== ServerStatus.UNHEALTHY}
-					onkeydown={(e) => e.key === 'Enter' && sendCommand()}
-					class="flex-1 bg-transparent font-mono text-sm text-white outline-none placeholder:text-zinc-600"
-				/>
-			</div>
-			<Button
-				onclick={sendCommand}
-				disabled={server.status === ServerStatus.STOPPED || !command.trim()}
-				size="sm"
-				class="h-7 bg-zinc-800 px-3 text-white hover:bg-zinc-700"
+	<div class="relative flex flex-1 items-center gap-2">
+		<span class="font-mono text-sm text-green-500">$</span>
+
+		<input
+			bind:this={commandInput}
+			onfocus={onFocus}
+			type="text"
+			onfocusout={handleCommandBlur}
+			placeholder={(server.status === ServerStatus.RUNNING || server.status === ServerStatus.UNHEALTHY)
+				? 'Enter command...'
+				: 'Server must be running'}
+			bind:value={command}
+			disabled={server.status !== ServerStatus.RUNNING && server.status !== ServerStatus.UNHEALTHY}
+			onkeydown={keyDown}
+			oninput={updateSuggestions}
+			class="flex-1 bg-transparent font-mono text-sm text-white outline-none placeholder:text-zinc-600"
+		/>
+
+		<!-- Floating Command Completion -->
+		{#if !forceDisabled && enabled && open && suggestions.length > 0}
+			<div
+				class="absolute bottom-full left-0 mb-2 w-full z-50 rounded-md border border-zinc-700 bg-zinc-900 shadow-xl"
+				bind:this={commandDropdown}
+				tabindex="-1"
+				onkeydown={handleDropdownKeyDown}
 			>
-				<Send class="h-3 w-3" />
-			</Button>
+				<Command>
+					<CommandList class="max-h-[150px]">
+						{#each suggestions as suggestion, i}
+							<CommandItem
+								bind:ref={suggestion.ref}
+								onclick={() => applyCompletion(suggestion.value)}
+								class="font-mono text-sm {i === activeSuggestionIndex ? 'bg-accent text-accent-foreground' : ''}"
+							>
+								{suggestion.value}
+							</CommandItem>
+						{/each}
+					</CommandList>
+				</Command>
+			</div>
+		{/if}
+	</div>
+
+	<Button
+		onclick={sendCommand}
+		disabled={server.status === ServerStatus.STOPPED || !command.trim()}
+		size="sm"
+		class="h-7 bg-zinc-800 px-3 text-white hover:bg-zinc-700"
+	>
+		<Send class="h-3 w-3" />
+	</Button>
 		</div>
 
 		<div class="flex shrink-0 items-center justify-between px-3 pb-2 text-xs text-zinc-500">
 			<div class="flex items-center gap-4">
+				{#if !forceDisabled}
+					<label class="flex items-center gap-2">
+						<input type="checkbox" bind:checked={enabled} disabled={forceDisabled} class="h-3 w-3 rounded" />
+						Command-Completion
+					</label>
+				{/if}
+
 				<label class="flex items-center gap-2">
 					<input type="checkbox" bind:checked={autoScroll} class="h-3 w-3 rounded" />
 					Auto-scroll
@@ -427,6 +716,87 @@
 			</div>
 		</div>
 	</div>
+
+	<Dialog.Root bind:open={showCommandCompletionInfo}>
+		<Dialog.Content class="max-w-2xl max-h-[90vh] overflow-y-auto">
+			<Dialog.Header>
+				<Dialog.Title>Command Completion</Dialog.Title>
+				<Dialog.Description>
+					{forceDisabled
+						? 'Command completion is disabled on this server.'
+						: 'Browse the available base commands and open the docs.'}
+				</Dialog.Description>
+			</Dialog.Header>
+
+			<div class="space-y-4 py-4">
+				<div class="grid gap-2 rounded-lg border border-zinc-800 bg-zinc-950/60 p-4 sm:grid-cols-3">
+					<div>
+						<p class="text-xs uppercase tracking-wide text-zinc-500">Modloader</p>
+						<p class="mt-1 text-sm text-zinc-200">{enumToString(ModLoader, server.modLoader)}</p>
+					</div>
+					<div>
+						<p class="text-xs uppercase tracking-wide text-zinc-500">Version</p>
+						<p class="mt-1 text-sm text-zinc-200">{server.mcVersion}</p>
+					</div>
+					<div>
+						<p class="text-xs uppercase tracking-wide text-zinc-500">Status</p>
+						<p class="mt-1 text-sm font-medium {forceDisabled ? 'text-red-400' : 'text-green-400'}">
+							{getCommandCompletionAvailabilityLabel()}
+						</p>
+					</div>
+				</div>
+
+				{#if forceDisabled}
+					<div class="space-y-2 rounded-lg border border-red-500/20 bg-red-500/5 p-4">
+						<div class="flex items-center gap-2 text-sm font-medium text-red-400">
+							<AlertCircle class="h-4 w-4" />
+							Disabled for this server
+						</div>
+						<p class="text-sm text-zinc-300">
+							Reason: {enumToString(ModLoader, server.modLoader)} {server.mcVersion} is not supported. 
+							<a href="https://docs.discopanel.app/command-completion/" target="_blank" rel="noopener noreferrer" class="text-blue-400 hover:underline">
+								View supported Mod Loaders and Minecraft versions.
+							</a>
+						</p>
+					</div>
+				{:else}
+					<div class="space-y-2">
+						<p class="text-sm font-medium text-foreground">Commands</p>
+								<p class="text-sm text-muted-foreground">Click a command to open the docs.</p>
+								{#if baseCommands.length > 0}
+								<div class="grid max-h-[40vh] gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
+									{#each baseCommands as baseCommand}
+										<a
+											href={getCommandCompletionBaseCommandUrl(baseCommand)}
+											target="_blank"
+											rel="noopener noreferrer"
+											class="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-sm text-zinc-200 transition hover:border-zinc-500 hover:bg-zinc-800"
+										>
+										<ExternalLink class="h-3 w-3 inline-block mr-1" />
+											{baseCommand}
+										</a>
+									{/each}
+								</div>
+								{:else}
+								<p class="text-sm text-muted-foreground">No commands loaded yet.</p>
+								{/if}
+					</div>
+
+
+				{/if}
+
+				<div class="flex justify-end gap-2 pt-2">
+					<Button variant="outline" size="sm" onclick={() => (showCommandCompletionInfo = false)}>
+						Close
+					</Button>
+					<Button href={commandCompletionDocsUrl} target="_blank" rel="noopener noreferrer" size="sm">
+						<ExternalLink class="h-4 w-4" />
+						View Vanilla Commands
+					</Button>
+				</div>
+			</div>
+		</Dialog.Content>
+	</Dialog.Root>
 </ResizablePaneGroup>
 
 <style>

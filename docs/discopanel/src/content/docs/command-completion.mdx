@@ -1,0 +1,38 @@
+---
+title: Command Completion
+description: How command completion works in DiscoPanel and supported Minecraft versions / mod loaders.
+---
+
+import { Code } from '@astrojs/starlight/components';
+
+
+DiscoPanel provides an in-app console with command completion that suggests and completes commands, including dynamic values (for example, online player names) retrieved from the server at runtime.
+
+
+## How to use Command Completion
+
+If your servers ModLoader + Version is Supported, command completions are enabled by default.
+
+- `tab` complete your command
+- If the completions dropdown is visible use `Arrow Up` or `Arrow Down` to switch into the completions dropdown and select your command. `Enter` or `Tab` to confirm. You can also start typing again. 
+- Close the completions dropdown with `Escape`.
+- If the completions dropdown is not visible use `Arrow Up` or `Arrow Down` to cycle through your last used commands.
+- You can also disable completions with the checkbox below your command input.
+
+
+## How completion works
+
+Depending on the used Mod Loader + Minecraft Version, different algorithms are used to retrieve commands at runtime from the server. 
+Current implementations uses Mincraft's `help` command and parses it's output.
+
+
+## Current Supported ModLoaders + Minecraft versions
+
+- `VANILLA` — compatible range: from `1.13` to `*`
+- `FABRIC` — compatible range: from `1.13` to `*`
+
+If your ModLoader + Version configuration is not supported yet, feel free to contribute via the [Contributing](/contributing/) guide or consult [Troubleshooting](/troubleshooting/). You can also open an issue on GitHub at https://github.com/nickheyer/discopanel/issues.
+
+ 
+
+---

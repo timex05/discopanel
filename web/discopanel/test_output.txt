@@ -1,0 +1,142 @@
+﻿
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.6 [39m[90mD:/Timo/discopanel-1/web/discopanel[39m
+
+[90mstdout[2m | src/lib/utils/completions.test.ts[2m > [22m[2mCompletions[2m > [22m[2mshould suggest bossbar set <id> color choices
+[22m[39m[Completions] help-> help bossbar set => /bossbar set <id> (name|color|style|value|max|visible|players)
+
+[90mstdout[2m | src/lib/utils/completions.test.ts[2m > [22m[2mCompletions[2m > [22m[2mshould suggest bossbar set <id> color choices
+[22m[39m[Completions] help-> help bossbar set id color  => /bossbar set id color pink/bossbar set id color blue/bossbar set id color red/bossbar set id color green/bossbar set id color yellow/bossbar set id color purple/bossbar set id color white
+
+[90mstdout[2m | src/lib/utils/completions.test.ts[2m > [22m[2mCompletions[2m > [22m[2mHelp output with decorators[2m > [22m[2mshould handle (grant|revoke) choice syntax
+[22m[39m[Completions] help-> help advancement  => /advancement (grant|revoke) <targets>
+
+[90mstdout[2m | src/lib/utils/completions.test.ts[2m > [22m[2mCompletions[2m > [22m[2mHelp output with decorators[2m > [22m[2mshould handle optional [<param>] syntax
+[22m[39m[Completions] help-> help clear  => /clear [<targets>] [<item>] [<maxCount>]
+
+[90mstdout[2m | src/lib/utils/completions.test.ts[2m > [22m[2mCompletions[2m > [22m[2madvancement from[2m > [22m[2mshould handle advancement
+[22m[39m[Completions] help-> help advancement grant => /advancement grant <targets> (only|from|until|through|everything)
+
+[90mstdout[2m | src/lib/utils/completions.test.ts[2m > [22m[2mCompletions[2m > [22m[2madvancement from[2m > [22m[2mshould handle advancement
+[22m[39m[Completions] help-> help advancement grant targets from  => /advancement grant targets from <advancement>
+
+[90mstdout[2m | src/lib/utils/completions.test.ts[2m > [22m[2mCompletions[2m > [22m[2madvancement through[2m > [22m[2mshould handle advancement
+[22m[39m[Completions] help-> help advancement grant => /advancement grant <targets> (only|from|until|through|everything)
+
+[90mstdout[2m | src/lib/utils/completions.test.ts[2m > [22m[2mCompletions[2m > [22m[2madvancement through[2m > [22m[2mshould handle advancement
+[22m[39m[Completions] help-> help advancement grant targets through  => /advancement grant targets through <advancement>
+
+[90mstdout[2m | src/lib/utils/completions.test.ts[2m > [22m[2mCompletions[2m > [22m[2mshould not treat choice->argument sequences as cycles (locate biome)
+[22m[39m[Completions] help-> help locate biome  => /locate biome <biome>
+
+[90mstdout[2m | src/lib/utils/completions.test.ts[2m > [22m[2mCompletions[2m > [22m[2mReal values instead of placeholders[2m > [22m[2mshould handle real player name instead of <targets>
+[22m[39m[Completions] help-> help clear timex05 => /clear timex05 [<item>] [<maxCount>]
+
+[90mstdout[2m | src/lib/utils/completions.test.ts[2m > [22m[2mCompletions[2m > [22m[2mReal values instead of placeholders[2m > [22m[2mshould handle multiple real values
+[22m[39m[Completions] help-> help clear timex05 => /clear timex05 [<item>] [<maxCount>]
+
+[90mstdout[2m | src/lib/utils/completions.test.ts[2m > [22m[2mCompletions[2m > [22m[2mReal values instead of placeholders[2m > [22m[2mshould handle multiple real values
+[22m[39m[Completions] help-> help clear timex05 applea 64 => /clear timex05 applea 64 [<item>] [<maxCount>]
+
+[90mstdout[2m | src/lib/utils/completions.test.ts[2m > [22m[2mCompletions[2m > [22m[2mDynamic targets from list command[2m > [22m[2mshould include online player names when <target>/<targets> is present
+[22m[39m[Completions] help-> help clear  => /clear [<targets>] [<item>] [<maxCount>]
+
+[90mstdout[2m | src/lib/utils/completions.test.ts[2m > [22m[2mCompletions[2m > [22m[2mDynamic targets from list command[2m > [22m[2mshould execute list each time and not cache player names
+[22m[39m[Completions] help-> help clear  => /clear [<targets>] [<item>] [<maxCount>]
+
+[90mstdout[2m | src/lib/utils/completions.test.ts[2m > [22m[2mCompletions[2m > [22m[2mRepeated optional tails should be ignored[2m > [22m[2mshould ignore optional-only tail when all param names already exist
+[22m[39m[Completions] help-> help advancement grant timex05 => /advancement grant timex05 only <advancement>
+
+[90mstdout[2m | src/lib/utils/completions.test.ts[2m > [22m[2mCompletions[2m > [22m[2mRepeated optional tails should be ignored[2m > [22m[2mshould ignore optional-only tail when all param names already exist
+[22m[39m[Completions] help-> help advancement grant timex05 => /advancement grant timex05 only <advancement>
+
+[90mstdout[2m | src/lib/utils/completions.test.ts[2m > [22m[2mCompletions[2m > [22m[2mChoice syntax with pipes[2m > [22m[2mshould parse (option1|option2|option3) correctly
+[22m[39m[Completions] help-> help gamemode  => /gamemode (survival|creative|adventure|spectator) [<targets>]
+
+[90mstdout[2m | src/lib/utils/completions.test.ts[2m > [22m[2mCompletions[2m > [22m[2mComplex nested commands[2m > [22m[2mshould handle /execute (run|if|unless|as|at) with further expansion
+[22m[39m[Completions] help-> help execute  => /execute (run|if|unless|as|at|store|positioned|rotated)
+
+[90mstdout[2m | src/lib/utils/completions.test.ts[2m > [22m[2mCompletions[2m > [22m[2mComplex nested commands[2m > [22m[2mshould handle /execute (run|if|unless|as|at) with further expansion
+[22m[39m[Completions] help-> help execute run  => /execute run <command>
+
+[90mstdout[2m | src/lib/utils/completions.test.ts[2m > [22m[2mCompletions[2m > [22m[2mEdge cases[2m > [22m[2mshould handle help output that is identical to input (no expansion)
+[22m[39m[Completions] help-> help custom  => /custom
+
+[90mstdout[2m | src/lib/utils/completions.test.ts[2m > [22m[2mCompletions[2m > [22m[2mEdge cases[2m > [22m[2mshould handle whitespace-only help decorators
+[22m[39m[Completions] help-> help test  => /test [ ] ( ) < >
+
+[90mstdout[2m | src/lib/utils/completions.test.ts[2m > [22m[2mCompletions[2m > [22m[2mrotate command[2m > [22m[2mshould suggest facingEntity and facingLocation for "rotate <target> facing "
+[22m[39m[Completions] help-> help rotate target facing  => /rotate target facing entity <facingEntity> [<facingAnchor>]/rotate target facing <facingLocation>
+
+[90mstdout[2m | src/lib/utils/completions.test.ts[2m > [22m[2mCompletions[2m > [22m[2mride command[2m > [22m[2mshould suggest <vehicle> for "ride <target> mount "
+[22m[39m[Completions] help-> help ride target mount  => /ride target mount <vehicle>
+
+ [32mÔ£ô[39m src/lib/utils/completions.test.ts[2m > [22mCompletions[2m > [22mBasic command completion[2m > [22mshould complete top-level commands[32m 24[2mms[22m[39m
+ [32mÔ£ô[39m src/lib/utils/completions.test.ts[2m > [22mCompletions[2m > [22mBasic command completion[2m > [22mshould complete with subcommands[32m 1[2mms[22m[39m
+ [32mÔ£ô[39m src/lib/utils/completions.test.ts[2m > [22mCompletions[2m > [22mshould suggest bossbar set <id> color choices[32m 5[2mms[22m[39m
+ [32mÔ£ô[39m src/lib/utils/completions.test.ts[2m > [22mCompletions[2m > [22mHelp output with decorators[2m > [22mshould handle (grant|revoke) choice syntax[32m 1[2mms[22m[39m
+ [32mÔ£ô[39m src/lib/utils/completions.test.ts[2m > [22mCompletions[2m > [22mHelp output with decorators[2m > [22mshould handle optional [<param>] syntax[32m 1[2mms[22m[39m
+ [32mÔ£ô[39m src/lib/utils/completions.test.ts[2m > [22mCompletions[2m > [22madvancement from[2m > [22mshould handle advancement[32m 1[2mms[22m[39m
+ [32mÔ£ô[39m src/lib/utils/completions.test.ts[2m > [22mCompletions[2m > [22madvancement through[2m > [22mshould handle advancement[32m 1[2mms[22m[39m
+ [32mÔ£ô[39m src/lib/utils/completions.test.ts[2m > [22mCompletions[2m > [22mattribute [2m > [22mshould handle attribute[32m 1[2mms[22m[39m
+ [32mÔ£ô[39m src/lib/utils/completions.test.ts[2m > [22mCompletions[2m > [22mattribute [2m > [22mshould handle attribute base generically[32m 1[2mms[22m[39m
+ [32mÔ£ô[39m src/lib/utils/completions.test.ts[2m > [22mCompletions[2m > [22mattribute [2m > [22mshould handle attribute modifier generically[32m 1[2mms[22m[39m
+ [32mÔ£ô[39m src/lib/utils/completions.test.ts[2m > [22mCompletions[2m > [22mgeneric cycle detection[2m > [22mshould ignore repeated command tokens for any command[32m 0[2mms[22m[39m
+ [32mÔ£ô[39m src/lib/utils/completions.test.ts[2m > [22mCompletions[2m > [22mshould not treat choice->argument sequences as cycles (locate biome)[32m 1[2mms[22m[39m
+ [32mÔ£ô[39m src/lib/utils/completions.test.ts[2m > [22mCompletions[2m > [22mshould treat literal->argument repetition as cycle (defaultgamemode)[32m 1[2mms[22m[39m
+ [32mÔ£ô[39m src/lib/utils/completions.test.ts[2m > [22mCompletions[2m > [22mshould not probe optionals like [ips|players] for banlist[32m 1[2mms[22m[39m
+ [32mÔ£ô[39m src/lib/utils/completions.test.ts[2m > [22mCompletions[2m > [22mReal values instead of placeholders[2m > [22mshould handle real player name instead of <targets>[32m 1[2mms[22m[39m
+ [32mÔ£ô[39m src/lib/utils/completions.test.ts[2m > [22mCompletions[2m > [22mReal values instead of placeholders[2m > [22mshould handle multiple real values[32m 1[2mms[22m[39m
+ [32mÔ£ô[39m src/lib/utils/completions.test.ts[2m > [22mCompletions[2m > [22mDynamic targets from list command[2m > [22mshould include online player names when <target>/<targets> is present[32m 2[2mms[22m[39m
+ [32mÔ£ô[39m src/lib/utils/completions.test.ts[2m > [22mCompletions[2m > [22mDynamic targets from list command[2m > [22mshould execute list each time and not cache player names[32m 1[2mms[22m[39m
+ [32mÔ£ô[39m src/lib/utils/completions.test.ts[2m > [22mCompletions[2m > [22mRepeated optional tails should be ignored[2m > [22mshould ignore help output with repeated parameter names[32m 0[2mms[22m[39m
+ [32mÔ£ô[39m src/lib/utils/completions.test.ts[2m > [22mCompletions[2m > [22mRepeated optional tails should be ignored[2m > [22mshould ignore optional-only tail when all param names already exist[32m 1[2mms[22m[39m
+ [32mÔ£ô[39m src/lib/utils/completions.test.ts[2m > [22mCompletions[2m > [22mAliases[2m > [22mshould handle command aliases[32m 0[2mms[22m[39m
+ [32mÔ£ô[39m src/lib/utils/completions.test.ts[2m > [22mCompletions[2m > [22mChoice syntax with pipes[2m > [22mshould parse (option1|option2|option3) correctly[32m 1[2mms[22m[39m
+ [32mÔ£ô[39m src/lib/utils/completions.test.ts[2m > [22mCompletions[2m > [22mComplex nested commands[2m > [22mshould handle /execute (run|if|unless|as|at) with further expansion[32m 1[2mms[22m[39m
+ [32mÔ£ô[39m src/lib/utils/completions.test.ts[2m > [22mCompletions[2m > [22mEdge cases[2m > [22mshould handle empty help output as endpoint[32m 0[2mms[22m[39m
+ [32mÔ£ô[39m src/lib/utils/completions.test.ts[2m > [22mCompletions[2m > [22mEdge cases[2m > [22mshould handle help output that is identical to input (no expansion)[32m 0[2mms[22m[39m
+ [32mÔ£ô[39m src/lib/utils/completions.test.ts[2m > [22mCompletions[2m > [22mEdge cases[2m > [22mshould handle whitespace-only help decorators[32m 0[2mms[22m[39m
+ [31m├ù[39m src/lib/utils/completions.test.ts[2m > [22mCompletions[2m > [22mrotate command[2m > [22mshould suggest facingEntity and facingLocation for "rotate <target> facing "[32m 6[2mms[22m[39m
+[31m   ÔåÆ expected [ '<facingLocation>', 'entity' ] to include '<facingEntity>'[39m
+ [31m├ù[39m src/lib/utils/completions.test.ts[2m > [22mCompletions[2m > [22mride command[2m > [22mshould suggest <vehicle> for "ride <target> mount "[32m 6[2mms[22m[39m
+[31m   ÔåÆ expected "vi.fn()" to be called with arguments: [ 'help ride ' ][90m
+
+Received:
+
+[1m  1st vi.fn() call:
+
+[22m[2m  [[22m
+[32m-   "help ride ",[90m
+[31m+   "help ride target ",[90m
+[2m  ][22m
+
+[1m  2nd vi.fn() call:
+
+[22m[2m  [[22m
+[32m-   "help ride ",[90m
+[31m+   "help ride target mount ",[90m
+[2m  ][22m
+
+[1m  3rd vi.fn() call:
+
+[22m[2m  [[22m
+[32m-   "help ride ",[90m
+[31m+   "help ride target mount",[90m
+[2m  ][22m
+
+[1m  4th vi.fn() call:
+
+[22m[2m  [[22m
+[32m-   "help ride ",[90m
+[31m+   "help ride target mount vehicle ",[90m
+[2m  ][22m
+[31m[90m
+
+Number of calls: [1m4[22m
+[31m[39m
+
+[2m Test Files [22m [1m[31m1 failed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[31m2 failed[39m[22m[2m | [22m[1m[32m26 passed[39m[22m[90m (28)[39m
+[2m   Start at [22m 16:12:30
+[2m   Duration [22m 635ms[2m (transform 144ms, setup 0ms, import 188ms, tests 65ms, environment 1ms)[22m
+
