@@ -172,7 +172,25 @@
 			actionLoading = false;
 		}
 	}
+
+	onMount(() => {
+		const syncFromHash = () => {
+			const hash = window.location.hash.replace('#', '');
+			if (hash) activeTab = hash || 'overview';
+		};
+
+		syncFromHash();
+		window.addEventListener('hashchange', syncFromHash);
+		return () => window.removeEventListener('hashchange', syncFromHash);
+	});
+
+	$effect(() => {
+		if (activeTab) {
+			window.location.hash = activeTab;
+		}
+	});
 </script>
+
 
 {#if loading && !server}
 	<div class="flex items-center justify-center h-96">
@@ -757,7 +775,7 @@
 
 		</div>
 
-		<Tabs value="overview" class="flex-1 flex flex-col min-h-0 gap-4" onValueChange={(value) => {
+		<Tabs value={activeTab} class="flex-1 flex flex-col min-h-0 gap-4" onValueChange={(value) => {
 			activeTab = value
 		}}>
 			<div class="shrink-0 w-full overflow-x-auto">
@@ -787,7 +805,10 @@
 				</TabsContent>
 
 				<TabsContent value="console" class="h-full">
-					<ServerConsole {server} active={activeTab === 'console'} />
+					<!-- Only render the console when the tab is active to optimize performance -->
+					{#if activeTab === 'console'}
+        				<ServerConsole {server} active={true} />
+    				{/if}
 				</TabsContent>
 
 				<TabsContent value="configuration" class="h-full overflow-y-auto">

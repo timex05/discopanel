@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 	"strconv"
-	"time"
 
 	"github.com/nickheyer/discopanel/internal/config"
 	storage "github.com/nickheyer/discopanel/internal/db"
 	"github.com/nickheyer/discopanel/internal/proxy"
 	rcon "github.com/nickheyer/discopanel/internal/rcon"
+	"github.com/nickheyer/discopanel/pkg/logger"
 )
 
 type DockerExecutor interface {
@@ -20,13 +20,15 @@ type Sender struct {
 	store  *storage.Store
 	config *config.Config
 	docker DockerExecutor
+	log    *logger.Logger
 }
 
-func NewSender(store *storage.Store, cfg *config.Config, docker DockerExecutor) *Sender {
+func NewSender(store *storage.Store, cfg *config.Config, docker DockerExecutor, log *logger.Logger) *Sender {
 	return &Sender{
 		store:  store,
 		config: cfg,
 		docker: docker,
+		log:    log,
 	}
 }
 
@@ -94,10 +96,7 @@ func (s *Sender) SendCommand(ctx context.Context, serverID string, command strin
 		return dockerExec(fmt.Errorf("failed to resolve container ip: %w", err))
 	}
 
-	// run comamand in dedicated context with timeout
-	rconCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
-	defer cancel()
-	output, err := rcon.SendCommand(rconCtx, ip, rconPort, rconPassword, command)
+	output, err := rcon.SendCommand(ip, rconPort, rconPassword, command, s.log)
 
 	if err != nil {
 		return dockerExec(fmt.Errorf("rcon command failed: %w", err))

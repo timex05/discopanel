@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import Completions from './vanilla-completions';
-import VanillaCompletions from './vanilla-completions';
+import Completions from './modloaders/vanilla';
+import VanillaCompletions from './modloaders/vanilla';
 
 
 describe('Completions', () => {

@@ -160,7 +160,7 @@ func main() {
 	defer proxyManager.Stop()
 
 	// Initialize command sender
-	sender := command.NewSender(store, cfg, dockerClient)
+	sender := command.NewSender(store, cfg, dockerClient, log)
 
 	// Initialize task scheduler
 	taskScheduler := scheduler.NewScheduler(store, dockerClient, sender, cfg, log, scheduler.Config{

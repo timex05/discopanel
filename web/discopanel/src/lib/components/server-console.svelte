@@ -15,19 +15,81 @@
 	import * as Tooltip from '$lib/components/ui/tooltip/index.js';
 	import AnsiToHtml from 'ansi-to-html';
 	import { enumToString, getStringForEnum } from '$lib/utils';
-	import { isModLoaderCompatible } from '$lib/utils/modloader-compatibility';
+	import { isModLoaderCompatible } from '$lib/command-completion/completions';
 	import { wsClient } from '$lib/stores/websocket.svelte';
 	import type Completions  from '$lib/command-completion/completions';
 	import { Command, CommandItem, CommandList } from './ui/command';
+	import type { BaseCommand } from '$lib/command-completion/completions';
 
 	// Create ansi-to-html converter with proper options
-	const ansiConverter = new AnsiToHtml({
-		fg: '#e8e8e8',
-		bg: '#000000',
-		newline: false,
-		escapeXML: true,
-		stream: true
-	});
+
+const ansiConverter = new AnsiToHtml({
+    fg: '#e8e8e8',
+    bg: '#000000',
+    newline: false,
+    escapeXML: true,
+    stream: true,
+    colors: {
+
+		// color codes according to https://minecraft.wiki/w/Formatting_codes#Color_codes
+
+        "30": '#000000', // §0 - black
+        "34": '#0000AA', // §1 - dark_blue
+        "32": '#00AA00', // §2 - dark_green
+        "36": '#00AAAA', // §3 - dark_aqua
+        "31": '#AA0000', // §4 - dark_red
+        "35": '#AA00AA', // §5 - dark_purple
+        "33": '#FFAA00', // §6 - gold
+        "37": '#AAAAAA', // §7 - gray
+
+
+        "90": '#555555', // §8 - dark_gray
+        "94": '#5555FF', // §9 - blue
+        "92": '#55FF55', // §a - green
+        "96": '#55FFFF', // §b - aqua
+        "91": '#FF5555', // §c - red
+        "95": '#FF55FF', // §d - light_purple
+        "93": '#FFFF55', // §e - yellow
+        "97": '#FFFFFF'  // §f - white
+    }
+});
+
+	function parseMinecraftColors(text: string): string {
+	    const codes: Record<string, string> = {
+			// color codes according to https://minecraft.wiki/w/Formatting_codes#Color_codes
+
+	        '0': '\x1b[0;30m', 
+			'1': '\x1b[0;34m', 
+			'2': '\x1b[0;32m', 
+			'3': '\x1b[0;36m', 
+			'4': '\x1b[0;31m', 
+			'5': '\x1b[0;35m', 
+			'6': '\x1b[0;33m', 
+			'7': '\x1b[0;37m',
+
+	        '8': '\x1b[0;90m', 
+			'9': '\x1b[0;94m', 
+			'a': '\x1b[0;92m', 
+			'b': '\x1b[0;96m', 
+			'c': '\x1b[0;91m', 
+			'd': '\x1b[0;95m', 
+			'e': '\x1b[0;93m', 
+			'f': '\x1b[0;97m',
+		
+			
+	        // formatting codes according to https://minecraft.wiki/w/Formatting_codes#Formatting_codes
+	        'l': '\x1b[1m',  // bold (\x1b[1m)
+	        'm': '\x1b[9m',  // strikethrough (\x1b[9m)
+	        'n': '\x1b[4m',  // underlined (\x1b[4m)
+	        'o': '\x1b[3m',  // italic (\x1b[3m)
+	        'r': '\x1b[0m'   // reset (\x1b[0m)
+	    };
+
+		// replace minecraft color code with ansi escape sequences 
+	    return text.replace(/§([0-9a-frlmno])/g, (_, code) => {
+	        return codes[code];
+	    }).concat('\x1b[0m'); // reset at the end to prevent bleed
+	}
 
 	let { server, active = false }: { server: Server; active?: boolean } = $props();
 
@@ -38,7 +100,6 @@
 	let scrollAreaRef = $state<HTMLDivElement | null>(null);
 	let tailLines = $state(500);
 	const MAX_LOG_ENTRIES = 5000;
-	const commandCompletionDocsUrl = 'https://minecraft.wiki/w/Commands';
 
 	// Ws state
 	let wsConnectionState = $derived(wsClient.state.connectionState);
@@ -82,8 +143,6 @@
 			});
 			initCommandCompletion();
 		}
-		
-
 	});
 
 	function setupWebSocket() {
@@ -186,12 +245,12 @@
 		}
 	}
 
-	async function sendCommand() {
+	async function sendCmd() {
 		if (!command.trim()) return;
 
 		loading = true;
 		const cmdToSend = command;
-		recentCommands.push(cmdToSend);
+		recentCmds.push(cmdToSend);
 		command = '';
 
 		// Use WebSocket if connected, otherwise fallback to RPC
@@ -279,35 +338,79 @@
 
 	// Command Completion
 	let completions = $state<Completions | undefined>(undefined);
-	let baseCommands = $state<string[]>([]);
+	let baseCmds = $state<BaseCommand[]>([]);
 
-	let recentCommands: string[] = [];
-	let recentCommandIndex = -1;
+	let recentCmds: string[] = [];
+	let recentCmdIndex = -1;
 
-	let forceDisabled = $state(false);
-	let enabled = $state(false);
-  	let open = $state(false);
-	let showCommandCompletionInfo = $state(false);
+	let forceDisabled = $state(false); // indicates whether modloader + version is supportet
+	let enabled = $state(false); // indicates whether the user enabled command completion
 
-	function getCommandCompletionBaseCommandUrl(baseCommand: string) {
-		return `${commandCompletionDocsUrl}/${encodeURIComponent(baseCommand)}`;
-	}
+	let cmdCEnabled = $derived(() => !forceDisabled && enabled); 
+  	
+	let open = $state(false);
+
+	let showCmdCInfo = $state(false); // controlls info card visibility
+
+	let suggestions = $state<SuggestionItem[]>([]);
+	let activeSuggestionIndex = $state(-1);
+
+	let cmdDropdown = $state<HTMLElement | null>(null);
+	let cmdInputElement = $state<HTMLInputElement>();
+
+	let commandDocsUrl = $state<string | undefined>(undefined);
+
+	let oldStatus = server.status;
+	$effect(() => {
+		if(server.status !== ServerStatus.RUNNING && server.status !== ServerStatus.UNHEALTHY) {
+			completions = undefined;
+			baseCmds = [];
+		}
+
+		if (server.status != oldStatus) {
+			oldStatus = server.status;
+
+			if (server.status == ServerStatus.RUNNING || server.status == ServerStatus.UNHEALTHY) {
+				initCommandCompletion();
+			}
+		}
+	});
+
+	let cmdValid = $state(true);
+	$effect(() => {
+	    let cancelled = false;
+
+	    (async () => {
+	        if (!cmdCEnabled() || !completions) {
+	            cmdValid = true;
+	            return;
+	        }
+
+	        const result = await completions.isCommandValid(command);
+	        if (!cancelled) {
+	            cmdValid = result;
+	        }
+	    })();
+
+	    return () => {
+	        cancelled = true;
+	    };
+	});
 
 	function getCommandCompletionAvailabilityLabel() {
-		return forceDisabled ? 'Unavailable' : 'Available';
+		if (forceDisabled) return 'Unavailable';
+		if (server.status === ServerStatus.STARTING) return 'Server is starting...';
+		if (server.status !== ServerStatus.RUNNING && server.status !== ServerStatus.UNHEALTHY) return 'Server must be running.';
+		return completions ? 'Available' : 'Loading...';
 	}
 
 	type SuggestionItem = {
 		value: string;
 		ref: HTMLElement | null;
 	};
-	let suggestions = $state<SuggestionItem[]>([]);
-	let activeSuggestionIndex = $state(-1);
+	
 
-	let commandDropdown = $state<HTMLElement | null>(null);
-	let commandInput = $state<HTMLInputElement>();
-
-	async function sendCommandWithReturn(command: string): Promise<string> {
+	async function sendSilentCommandWithReturn(command: string): Promise<string> {
 		const request = create(SendCommandRequestSchema, {
 			id: server.id,
 			command: command,
@@ -317,13 +420,13 @@
 		return response.output;
 	}
 
-	async function initCommandCompletion() {
-		// Reset state
+	function resetCommandCompletionState() {
+		
 		completions = undefined;
-		baseCommands = [];
+		baseCmds = [];
 
-		recentCommands = [];
-		recentCommandIndex = -1;
+		recentCmds = [];
+		recentCmdIndex = -1;
 
 		forceDisabled = false;
 		enabled = false;
@@ -332,7 +435,11 @@
 		suggestions = [];
 		activeSuggestionIndex = -1;
 
-		commandDropdown = null;
+		cmdDropdown = null;
+	}
+
+	async function initCommandCompletion() {
+		resetCommandCompletionState();
 
 		try {
 			// check mod-loader compatibility
@@ -341,14 +448,18 @@
 			if (!modLoaderCompatibleResult.compatible) {
 				forceDisabled = true;
 			}
+			commandDocsUrl = modLoaderCompatibleResult.commandDocsUrl;
 			enabled = true;
+
 			if(!forceDisabled && server.status === ServerStatus.RUNNING && modLoaderCompatibleResult.completionClass){
-				completions = new modLoaderCompatibleResult.completionClass((command: string) => sendCommandWithReturn(command));
+				completions = await modLoaderCompatibleResult.completionClass.create(sendSilentCommandWithReturn);
 				// populate cached base commands for template iteration
 				try {
-					baseCommands = await completions.getBaseCommands();
+					if(!completions) return [];
+					baseCmds = await completions.getBaseCommands();
+					updateSuggestions();
 				} catch (e) {
-					baseCommands = [];
+					baseCmds = [];
 					console.error('Failed to load base commands', e);
 				}
 				enabled = true;
@@ -371,12 +482,12 @@
 	});
 
 	async function updateSuggestions() {
-		if(forceDisabled) return;
+		if(!cmdCEnabled()) return;
 		if(completions){
-			const visibleSuggestions = (await completions.getPossibleCompletions(command)).filter((suggestion) => suggestion.trim() !== '');
-			suggestions = visibleSuggestions.map((value) => ({ value, ref: null }));
+			// load suggestions
+			const visibleSuggestions = await completions.getPossibleCompletions(command);
+			suggestions = visibleSuggestions.map((result) => ({ value: result.value, ref: null }));
 			activeSuggestionIndex = suggestions.length > 0 ? 0 : -1;
-			console.log('Updated suggestions:', visibleSuggestions);
 		}
 	}
 	
@@ -397,110 +508,125 @@
 	function focusDropdown(index: number) {
 		if (!suggestions.length) return;
 		activeSuggestionIndex = Math.max(0, Math.min(index, suggestions.length - 1));
-		commandDropdown?.focus();
+		cmdDropdown?.focus();
 	}
 
 	function handleDropdownKeyDown(e: KeyboardEvent) {
 		if (!suggestions.length) return;
+		e.preventDefault();
 
-		if (e.key === 'ArrowDown') {
-			e.preventDefault();
-			activeSuggestionIndex = activeSuggestionIndex < suggestions.length - 1 ? activeSuggestionIndex + 1 : 0;
-		} else if (e.key === 'ArrowUp') {
-			e.preventDefault();
-			activeSuggestionIndex = activeSuggestionIndex > 0 ? activeSuggestionIndex - 1 : suggestions.length - 1;
-		} else if ((e.key === 'Enter' || e.key == 'Tab') && activeSuggestionIndex >= 0) {
-			e.preventDefault();
-			applyCompletion(suggestions[activeSuggestionIndex].value);
-			commandInput?.focus();
-		} else if (e.key === 'Escape') {
-			e.preventDefault();
-			open = false;
-			recentCommandIndex = -1;
-			activeSuggestionIndex = -1;
-			commandInput?.focus();
-		}
-		else {
-			e.preventDefault()
-			recentCommandIndex = -1;
-			activeSuggestionIndex = -1;
-			commandInput?.focus();
-			if(e.key.length === 1) command += e.key;
-			updateSuggestions();
+		switch(e.key){
+			case 'ArrowDown':
+				activeSuggestionIndex = activeSuggestionIndex < suggestions.length - 1 ? activeSuggestionIndex + 1 : 0;
+				break;
+			case 'ArrowUp':
+				activeSuggestionIndex = activeSuggestionIndex > 0 ? activeSuggestionIndex - 1 : suggestions.length - 1;
+				break;
+			case 'Enter':
+			case 'Tab':
+				if(activeSuggestionIndex >= 0){
+					applyCompletion(suggestions[activeSuggestionIndex].value);
+					cmdInputElement?.focus();
+				}
+				break;
+			case 'Escape':
+				open = false;
+				recentCmdIndex = -1;
+				activeSuggestionIndex = -1;
+				cmdInputElement?.focus();
+				break;
+			default:
+				recentCmdIndex = -1;
+				activeSuggestionIndex = -1;
+				cmdInputElement?.focus();
+				if(e.key.length === 1) command += e.key;
+				updateSuggestions();
+				break;
 		}
 	}
 
-	function handleCommandBlur(event: FocusEvent) {
+	function handleCmdFocusOut(event: FocusEvent) {
 		if(forceDisabled) return;
 		const nextFocused = event.relatedTarget as Node | null;
-		if (nextFocused && commandDropdown?.contains(nextFocused)) {
+		if (nextFocused && cmdDropdown?.contains(nextFocused)) {
 			return;
 		}
 		open = false;
-		recentCommandIndex = -1;
+		recentCmdIndex = -1;
 		activeSuggestionIndex = -1;
 	}
 
-	function keyDown(e: KeyboardEvent) {
-		if (e.key === 'Enter') {
-			sendCommand();
-			suggestions = [];
-			open = false;
-			activeSuggestionIndex = -1;
-		} else if (e.key === 'Tab') {
-			if(!enabled || forceDisabled) return;
-			e.preventDefault();
-			if (suggestions.length > 0) {
-				applyCompletion(suggestions[0].value);
-			}
-		} else if (e.key === 'Escape') {
-			open = false;
-		} else if (e.key === 'ArrowUp') {
-			e.preventDefault();
-			if (open && suggestions.length > 0) {
-				focusDropdown(suggestions.length - 1);
-				return;
-			}
-			if(recentCommands.length == 0) return;
-			if(recentCommandIndex == 0) return;
-
-			if(recentCommandIndex == -1){
-				recentCommandIndex = recentCommands.length - 1;
-				command = recentCommands[recentCommandIndex];
-			} else {
-				recentCommandIndex -= 1;
-				command = recentCommands[recentCommandIndex];
-			}
-			return;
-		} else if (e.key === 'ArrowDown') {
-			e.preventDefault();
-			if (open && suggestions.length > 0) {
-				focusDropdown(0);
-				return;
-			}
-			if(recentCommands.length == 0) return;
-			if(recentCommandIndex == -1) return;
-
-			recentCommandIndex += 1;
-			if(recentCommandIndex >= recentCommands.length){
-				recentCommandIndex = -1;
-				command = '';
-			} else {
-				command = recentCommands[recentCommandIndex];
-			}
-			return;
-		
-		} else {
-			open = true;
-		}
-
-		recentCommandIndex = -1;
+	function resetSuggestions() {
+		suggestions = [];
+		activeSuggestionIndex = -1;
 	}
 
-	async function onFocus() {
-		if(forceDisabled) return;
+	function handleCmdKeyDown(e: KeyboardEvent) {
+
+		switch (e.key) {
+			case 'Enter':
+				sendCmd();
+				resetSuggestions();
+				open = false;
+				break;
+			case 'Tab':
+				if(!cmdCEnabled()) return;
+				e.preventDefault();
+				if (suggestions.length > 0) {
+					applyCompletion(suggestions[0].value);
+				}
+				break;
+			case 'Escape':
+				open = false;
+				break;
+			case 'ArrowUp':
+				e.preventDefault();
+
+				if (open && suggestions.length > 0) {
+					focusDropdown(0);
+					return;
+				}
+
+				// cycle through recent commands
+				if(recentCmds.length == 0) return;
+				if(recentCmdIndex == 0) return;
+
+				if(recentCmdIndex == -1){
+					recentCmdIndex = recentCmds.length - 1;
+					command = recentCmds[recentCmdIndex];
+				} else {
+					recentCmdIndex -= 1;
+					command = recentCmds[recentCmdIndex];
+				}
+				break;
+			case 'ArrowDown':
+				e.preventDefault();
+				if (open && suggestions.length > 0) {
+					focusDropdown(suggestions.length - 1);
+					return;
+				}
+				if(recentCmds.length == 0) return;
+				if(recentCmdIndex == -1) return;
+
+				recentCmdIndex += 1;
+				if(recentCmdIndex >= recentCmds.length){
+					recentCmdIndex = -1;
+					command = '';
+				} else {
+					command = recentCmds[recentCmdIndex];
+				}
+				break;
+			default:
+				open = true;
+				break;
+		}
+		// reset suggestion selection cycle on any key press	
+		recentCmdIndex = -1;
+	}
+
+	async function onCmdInputFocus() {
+		if(!cmdCEnabled()) return;
 		open = true; 
-		updateSuggestions();
 	}
 
 </script>
@@ -530,7 +656,7 @@
 							<Button
 								size="sm"
 								variant="ghost"
-								onclick={() => {showCommandCompletionInfo = true; if(!completions && server.status === ServerStatus.RUNNING) initCommandCompletion();}}
+								onclick={() => {showCmdCInfo = true; if(!completions && server.status === ServerStatus.RUNNING) initCommandCompletion();}}
 								class="h-7 w-7 p-0 text-zinc-400 hover:text-white"
 							>
 								<Info class="h-3 w-3" />
@@ -618,7 +744,7 @@
 						{#each logEntries as entry, i (i)}
 							<div class="log-line whitespace-pre-wrap break-all" data-type={entry.level}>
 								<!-- eslint-disable-next-line svelte/no-at-html-tags -->
-								{@html ansiConverter.toHtml(entry.message)}
+								{@html ansiConverter.toHtml(parseMinecraftColors(entry.message))}
 							</div>
 						{/each}
 					{/if}
@@ -632,19 +758,22 @@
 	<div class="flex flex-col bg-zinc-950">
 		<div class="flex shrink-0 gap-2 border-t border-zinc-800 p-3">
 	<div class="relative flex flex-1 items-center gap-2">
-		<span class="font-mono text-sm text-green-500">$</span>
+		<span class="font-mono text-sm"
+			class:text-green-500={cmdValid}
+  			class:text-red-500={!cmdValid}
+		>$</span>
 
 		<input
-			bind:this={commandInput}
-			onfocus={onFocus}
+			bind:this={cmdInputElement}
+			onfocus={onCmdInputFocus}
 			type="text"
-			onfocusout={handleCommandBlur}
+			onfocusout={handleCmdFocusOut}
 			placeholder={(server.status === ServerStatus.RUNNING || server.status === ServerStatus.UNHEALTHY)
 				? 'Enter command...'
 				: 'Server must be running'}
 			bind:value={command}
 			disabled={server.status !== ServerStatus.RUNNING && server.status !== ServerStatus.UNHEALTHY}
-			onkeydown={keyDown}
+			onkeydown={handleCmdKeyDown}
 			oninput={updateSuggestions}
 			class="flex-1 bg-transparent font-mono text-sm text-white outline-none placeholder:text-zinc-600"
 		/>
@@ -653,13 +782,13 @@
 		{#if !forceDisabled && enabled && open && suggestions.length > 0}
 			<div
 				class="absolute bottom-full left-0 mb-2 w-full z-50 rounded-md border border-zinc-700 bg-zinc-900 shadow-xl"
-				bind:this={commandDropdown}
+				bind:this={cmdDropdown}
 				tabindex="-1"
 				onkeydown={handleDropdownKeyDown}
 			>
 				<Command>
 					<CommandList class="max-h-[150px]">
-						{#each suggestions as suggestion, i}
+						{#each suggestions as suggestion, i (suggestion.value)}
 							<CommandItem
 								bind:ref={suggestion.ref}
 								onclick={() => applyCompletion(suggestion.value)}
@@ -675,7 +804,7 @@
 	</div>
 
 	<Button
-		onclick={sendCommand}
+		onclick={sendCmd}
 		disabled={server.status === ServerStatus.STOPPED || !command.trim()}
 		size="sm"
 		class="h-7 bg-zinc-800 px-3 text-white hover:bg-zinc-700"
@@ -717,7 +846,7 @@
 		</div>
 	</div>
 
-	<Dialog.Root bind:open={showCommandCompletionInfo}>
+	<Dialog.Root bind:open={showCmdCInfo}>
 		<Dialog.Content class="max-w-2xl max-h-[90vh] overflow-y-auto">
 			<Dialog.Header>
 				<Dialog.Title>Command Completion</Dialog.Title>
@@ -762,20 +891,55 @@
 				{:else}
 					<div class="space-y-2">
 						<p class="text-sm font-medium text-foreground">Commands</p>
+								{#if baseCmds.length > 0}
 								<p class="text-sm text-muted-foreground">Click a command to open the docs.</p>
-								{#if baseCommands.length > 0}
 								<div class="grid max-h-[40vh] gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
-									{#each baseCommands as baseCommand}
-										<a
-											href={getCommandCompletionBaseCommandUrl(baseCommand)}
-											target="_blank"
-											rel="noopener noreferrer"
-											class="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-sm text-zinc-200 transition hover:border-zinc-500 hover:bg-zinc-800"
-										>
-										<ExternalLink class="h-3 w-3 inline-block mr-1" />
-											{baseCommand}
-										</a>
-									{/each}
+								<Tooltip.Provider delayDuration={1000} skipDelayDuration={0}>
+									{#each baseCmds as baseCommand (baseCommand.name)}
+    {#if baseCommand.description}
+        <Tooltip.Root delayDuration={1000}>
+            <Tooltip.Trigger class="block w-full">
+                {#if baseCommand.url !== ''}
+                    <a
+                        href={baseCommand.url}
+                        target="_blank"
+                        rel="external noopener noreferrer"
+                        class="inline-flex items-center justify-start w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-sm text-zinc-200 transition hover:border-zinc-500 hover:bg-zinc-800"
+                    >
+                        <ExternalLink class="mr-2 h-3 w-3 shrink-0" />
+                        {baseCommand.name}
+                    </a>
+                {:else}
+                    <div class="inline-flex items-center justify-start w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 font-mono text-sm text-zinc-400">
+                        <div class="w-5 shrink-0"></div> 
+                        {baseCommand.name}
+                    </div>
+                {/if}
+            </Tooltip.Trigger>
+            <Tooltip.Content class="whitespace-pre-line">
+    			{baseCommand.description}
+			</Tooltip.Content>
+        </Tooltip.Root>
+    {:else}
+        {#if baseCommand.url !== ''}
+            <a
+                href={baseCommand.url}
+                target="_blank"
+                rel="external noopener noreferrer"
+                class="inline-flex items-center justify-start w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-sm text-zinc-200 transition hover:border-zinc-500 hover:bg-zinc-800"
+            >
+                <ExternalLink class="mr-2 h-3 w-3 shrink-0" />
+                {baseCommand.name}
+            </a>
+        {:else}
+            <div class="inline-flex items-center justify-start w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 font-mono text-sm text-zinc-400">
+                <div class="w-5 shrink-0"></div>
+                {baseCommand.name}
+            </div>
+        {/if}
+    {/if}
+{/each}
+</Tooltip.Provider>
 								</div>
 								{:else}
 								<p class="text-sm text-muted-foreground">No commands loaded yet.</p>
@@ -786,12 +950,12 @@
 				{/if}
 
 				<div class="flex justify-end gap-2 pt-2">
-					<Button variant="outline" size="sm" onclick={() => (showCommandCompletionInfo = false)}>
+					<Button variant="outline" size="sm" onclick={() => (showCmdCInfo = false)}>
 						Close
 					</Button>
-					<Button href={commandCompletionDocsUrl} target="_blank" rel="noopener noreferrer" size="sm">
+					<Button href={commandDocsUrl ? commandDocsUrl : undefined} target="_blank" rel="noopener noreferrer" size="sm" disabled={(commandDocsUrl == undefined) && (commandDocsUrl !== '')}>
 						<ExternalLink class="h-4 w-4" />
-						View Vanilla Commands
+						View {enumToString(ModLoader, server.modLoader)} Commands
 					</Button>
 				</div>
 			</div>
