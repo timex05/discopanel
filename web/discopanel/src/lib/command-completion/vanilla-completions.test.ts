@@ -10,9 +10,21 @@ describe('Completions', () => {
 			return helpResponses[command] ?? '';
 		});
 
+		const instance = new VanillaCompletions(helpResponses['help'] ?? '', commandFunction);
 
 		return {
-			completions: new VanillaCompletions(commandFunction),
+			completions: {
+				getPossibleCompletions: async (input: string) => {
+					const res = await instance.getPossibleCompletions(input);
+					return res.map((r) => r.value);
+				},
+				getBaseCommands: async () => {
+					return instance.getBaseCommands();
+				},
+				isCommandValid: async (cmd: string) => {
+					return instance.isCommandValid(cmd);
+				}
+			},
 			commandFunction
 		};
 	}
@@ -37,12 +49,16 @@ describe('Completions', () => {
 			expect(result).toContain('[<targets>]');
 		});
 
-		it('should expose sorted base commands and aliases', () => {
+		it('should expose sorted base commands and aliases', async () => {
 			const { completions } = createCompletions({
 				'help': '/experience/xp -> experience/alpha'
 			});
 
-			expect(completions.getBaseCommands()).toEqual(['alpha', 'experience', 'xp']);
+			expect((await completions.getBaseCommands()).map((c) => c.name)).toEqual([
+				'alpha',
+				'experience',
+				'xp'
+			]);
 		});
 	});
 
@@ -258,11 +274,12 @@ describe('Completions', () => {
 			});
 
 			const completions = new VanillaCompletions(
+				'/clear [<targets>] [<item>] [<maxCount>]',
 				commandFunction
 			);
 
-			const first = await completions.getPossibleCompletions('clear ');
-			const second = await completions.getPossibleCompletions('clear ');
+			const first = (await completions.getPossibleCompletions('clear ')).map((r) => r.value);
+			const second = (await completions.getPossibleCompletions('clear ')).map((r) => r.value);
 
 			expect(first).toContain('timex05');
 			expect(first).not.toContain('playerc');

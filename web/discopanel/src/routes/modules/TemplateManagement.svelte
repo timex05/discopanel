@@ -1,26 +1,39 @@
 <script lang="ts">
 	import { Button } from '$lib/components/ui/button';
-	import { Card, CardContent } from '$lib/components/ui/card';
 	import { Badge } from '$lib/components/ui/badge';
+	import { Skeleton } from '$lib/components/ui/skeleton';
+	import { EmptyState, ConfirmDialog } from '$lib/components/app';
 	import DynamicIcon from '$lib/components/ui/DynamicIcon.svelte';
 	import { rpcClient } from '$lib/api/rpc-client';
-	import { toast } from 'svelte-sonner';
-	import type { ModuleTemplate } from '$lib/proto/discopanel/v1/module_pb';
-	import { ModuleTemplateType } from '$lib/proto/discopanel/v1/module_pb';
-	import { Loader2, Plus, Trash2, Settings, Package, RefreshCw, Layers } from '@lucide/svelte';
+	import { notify } from '$lib/stores/activity.svelte';
+	import type { ModuleTemplate } from '$lib/proto/discopanel/v1/storage_pb';
+	import { ModuleTemplateType } from '$lib/proto/discopanel/v1/storage_pb';
+	import { Plus, Trash2, Settings, Layers, Search } from '@lucide/svelte';
 	import ModuleTemplateCreateDialog from '$lib/components/server/ModuleTemplateCreateDialog.svelte';
 	import { onMount } from 'svelte';
+	import { registerRefresh } from '$lib/stores/refresh';
+
+	let {
+		createOpen = $bindable(false),
+		category = $bindable(null),
+		categories = $bindable([])
+	}: {
+		createOpen?: boolean;
+		category?: string | null;
+		categories?: string[];
+	} = $props();
 
 	let templates = $state<ModuleTemplate[]>([]);
 	let loading = $state(true);
 
-	// Dialog state
-	let createDialogOpen = $state(false);
 	let editDialogOpen = $state(false);
 	let selectedTemplate = $state<ModuleTemplate | null>(null);
+	let deleteTarget = $state<ModuleTemplate | null>(null);
+	let deleteOpen = $state(false);
 
 	onMount(() => {
 		loadTemplates();
+		return registerRefresh(() => loadTemplates(true));
 	});
 
 	async function loadTemplates(silent = false) {
@@ -29,22 +42,28 @@
 			const response = await rpcClient.module.listModuleTemplates({});
 			templates = response.templates;
 		} catch {
-			if (!silent) toast.error('Failed to load module templates');
+			if (!silent) notify.error('Failed to load module templates');
 		} finally {
 			if (!silent) loading = false;
 		}
 	}
 
-	async function handleDeleteTemplate(template: ModuleTemplate) {
-		const confirmed = confirm(`Are you sure you want to delete template "${template.name}"?\n\nThis cannot be undone and will not affect existing instances.`);
-		if (!confirmed) return;
+	function requestDelete(template: ModuleTemplate) {
+		deleteTarget = template;
+		deleteOpen = true;
+	}
 
+	async function confirmDelete() {
+		if (!deleteTarget) return;
+		const template = deleteTarget;
 		try {
 			await rpcClient.module.deleteModuleTemplate({ id: template.id });
-			toast.success(`Template "${template.name}" deleted`);
+			notify.success(`Template "${template.name}" deleted`);
 			await loadTemplates(true);
 		} catch (error) {
-			toast.error(`Failed to delete template: ${error instanceof Error ? error.message : 'Unknown error'}`);
+			notify.error(
+				`Failed to delete template: ${error instanceof Error ? error.message : 'Unknown error'}`
+			);
 		}
 	}
 
@@ -53,149 +72,146 @@
 		editDialogOpen = true;
 	}
 
-	let categories = $derived.by(() => {
-		const cats = new Set<string>();
+	// Shares the category list with the page submenu
+	$effect(() => {
+		const cats: string[] = [];
 		templates.forEach((t) => {
-			if (t.category) cats.add(t.category);
+			if (t.category && !cats.includes(t.category)) cats.push(t.category);
 		});
-		return Array.from(cats).sort();
+		categories = cats.sort();
 	});
 
-	let selectedCategory = $state<string | null>(null);
+	// Clears filter when its category disappears
+	$effect(() => {
+		if (category && !categories.includes(category)) {
+			category = null;
+		}
+	});
 
 	let filteredTemplates = $derived.by(() => {
-		if (!selectedCategory) return templates;
-		return templates.filter((t) => t.category === selectedCategory);
+		if (!category) return templates;
+		return templates.filter((t) => t.category === category);
 	});
 </script>
 
-<div class="space-y-6">
-	<div class="flex items-center justify-between">
-		<div>
-			<h3 class="text-lg font-medium">Module Templates</h3>
-			<p class="text-sm text-muted-foreground">Manage blueprints for creating module instances.</p>
-		</div>
-		<div class="flex items-center gap-2">
-			<Button variant="outline" size="sm" onclick={() => loadTemplates()} disabled={loading}>
-				{#if loading}
-					<Loader2 class="h-4 w-4 animate-spin" />
-				{:else}
-					<RefreshCw class="h-4 w-4" />
-				{/if}
-			</Button>
-			<Button onclick={() => (createDialogOpen = true)}>
-				<Plus class="h-4 w-4 mr-2" />
-				Create Template
-			</Button>
-		</div>
-	</div>
-
-	{#if categories.length > 0}
-		<div class="flex flex-wrap gap-2">
-			<Button
-				variant={selectedCategory === null ? 'default' : 'outline'}
-				size="sm"
-				onclick={() => (selectedCategory = null)}
-				class="h-8 px-3"
-			>
-				All
-			</Button>
-			{#each categories as cat (cat)}
-				<Button
-					variant={selectedCategory === cat ? 'default' : 'outline'}
-					size="sm"
-					onclick={() => (selectedCategory = cat)}
-					class="h-8 px-3"
-				>
-					{cat}
-				</Button>
-			{/each}
-		</div>
-	{/if}
-
+<div class="space-y-4">
 	{#if loading && templates.length === 0}
-		<div class="flex items-center justify-center py-12">
-			<Loader2 class="h-8 w-8 animate-spin text-muted-foreground" />
+		<div class="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+			{#each Array(3) as _, i (i)}
+				<Skeleton class="h-40 rounded-lg" />
+			{/each}
 		</div>
 	{:else if templates.length === 0}
-		<div class="flex flex-col items-center justify-center py-12 text-center border rounded-lg bg-card">
-			<Layers class="h-12 w-12 mb-4 text-muted-foreground/50" />
-			<h3 class="text-lg font-medium mb-1">No Templates Found</h3>
-			<p class="text-sm text-muted-foreground max-w-sm mb-4">
-				You don't have any module templates configured yet.
-			</p>
-			<Button onclick={() => (createDialogOpen = true)}>
-				<Plus class="h-4 w-4 mr-2" />
-				Create Template
-			</Button>
+		<div class="rounded-lg border bg-card">
+			<EmptyState
+				icon={Layers}
+				title="No templates found"
+				description="You don't have any module templates configured yet."
+			>
+				<Button size="sm" onclick={() => (createOpen = true)}>
+					<Plus class="size-4" />
+					Create template
+				</Button>
+			</EmptyState>
+		</div>
+	{:else if filteredTemplates.length === 0}
+		<div class="rounded-lg border bg-card">
+			<EmptyState
+				icon={Search}
+				title="No matching templates"
+				description="No templates in this category anymore."
+			>
+				<Button variant="outline" size="sm" onclick={() => (category = null)}>Clear filter</Button>
+			</EmptyState>
 		</div>
 	{:else}
-		<div class="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
-			{#each filteredTemplates as template (template.name)}
-				<Card class="group relative overflow-hidden border shadow-sm hover:shadow-md transition-all">
-					<CardContent class="p-5 flex flex-col h-full">
-						<div class="flex items-start gap-4 mb-4">
-							<div class="h-12 w-12 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
-								<DynamicIcon name={template.icon} class="h-6 w-6 text-primary" fallback="Package" />
-							</div>
-							<div class="flex-1 min-w-0">
-								<h3 class="font-semibold truncate text-lg">{template.name}</h3>
-								<div class="flex items-center gap-2 mt-1 flex-wrap">
-									{#if template.type === ModuleTemplateType.BUILTIN}
-										<Badge variant="default" class="text-[10px] px-1.5 py-0">Built-in</Badge>
-									{:else}
-										<Badge variant="outline" class="text-[10px] px-1.5 py-0">Custom</Badge>
-									{/if}
-									{#if template.category}
-										<Badge variant="secondary" class="text-[10px] px-1.5 py-0">{template.category}</Badge>
-									{/if}
-								</div>
+		<div class="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+			{#each filteredTemplates as template (template.id)}
+				<div
+					class="group flex flex-col rounded-lg border bg-card p-4 transition-colors hover:border-primary/20"
+				>
+					<div class="flex items-start gap-3">
+						<div
+							class="flex size-10 shrink-0 items-center justify-center rounded-lg border border-border/60 bg-muted/40 text-muted-foreground"
+						>
+							<DynamicIcon name={template.icon} class="size-5" fallback="Package" />
+						</div>
+						<div class="min-w-0 flex-1">
+							<h3 class="truncate text-sm font-medium">{template.name}</h3>
+							<div class="mt-1 flex flex-wrap items-center gap-1">
+								{#if template.type === ModuleTemplateType.BUILTIN}
+									<Badge variant="secondary">Built-in</Badge>
+								{:else}
+									<Badge variant="outline">Custom</Badge>
+								{/if}
+								{#if template.category}
+									<Badge variant="secondary">{template.category}</Badge>
+								{/if}
 							</div>
 						</div>
-						
-						<p class="text-sm text-muted-foreground flex-1 mb-4 line-clamp-2">
-							{template.description || 'No description provided'}
-						</p>
+					</div>
 
-						<div class="flex items-center justify-between pt-4 border-t mt-auto">
-							<div class="text-xs text-muted-foreground font-mono truncate max-w-[150px]">
-								{template.dockerImage}
-							</div>
-							
-							{#if template.type === ModuleTemplateType.CUSTOM}
-								<div class="flex items-center gap-1">
-									<Button
-										size="icon"
-										variant="ghost"
-										onclick={() => openEditDialog(template)}
-										title="Edit template"
-										class="h-8 w-8"
-									>
-										<Settings class="h-4 w-4" />
-									</Button>
-									<Button
-										size="icon"
-										variant="ghost"
-										onclick={() => handleDeleteTemplate(template)}
-										title="Delete template"
-										class="h-8 w-8 text-destructive hover:text-destructive"
-									>
-										<Trash2 class="h-4 w-4" />
-									</Button>
-								</div>
-							{:else}
-								<div class="text-xs text-muted-foreground/50 px-2 py-1 bg-muted rounded">Read-only</div>
-							{/if}
+					<p class="mt-3 line-clamp-2 flex-1 text-sm text-muted-foreground">
+						{template.description || 'No description provided'}
+					</p>
+
+					<div class="mt-3 flex items-center justify-between gap-2 border-t pt-2.5">
+						<div class="min-w-0 truncate font-mono text-xs text-muted-foreground">
+							{template.dockerImage}
 						</div>
-					</CardContent>
-				</Card>
+
+						{#if template.type === ModuleTemplateType.CUSTOM}
+							<div
+								class="flex shrink-0 items-center gap-1 opacity-60 transition-opacity group-hover:opacity-100"
+							>
+								<Button
+									size="icon"
+									variant="ghost"
+									class="size-7"
+									onclick={() => openEditDialog(template)}
+									title="Edit template"
+								>
+									<Settings class="size-3.5" />
+								</Button>
+								<Button
+									size="icon"
+									variant="ghost"
+									class="size-7 text-status-danger hover:bg-status-danger/10 hover:text-status-danger"
+									onclick={() => requestDelete(template)}
+									title="Delete template"
+								>
+									<Trash2 class="size-3.5" />
+								</Button>
+							</div>
+						{:else}
+							<span class="shrink-0 text-xs text-muted-foreground">Read-only</span>
+						{/if}
+					</div>
+				</div>
 			{/each}
 		</div>
+		<p class="tabular text-xs text-muted-foreground">
+			{#if category}
+				{filteredTemplates.length} of {templates.length} templates
+			{:else}
+				{templates.length}
+				{templates.length === 1 ? 'template' : 'templates'}
+			{/if}
+		</p>
 	{/if}
 </div>
 
+<ConfirmDialog
+	bind:open={deleteOpen}
+	title="Delete template {deleteTarget?.name ?? ''}?"
+	description="This cannot be undone and will not affect existing instances."
+	confirmLabel="Delete template"
+	destructive
+	onConfirm={confirmDelete}
+/>
+
 <ModuleTemplateCreateDialog
-	bind:open={createDialogOpen}
+	bind:open={createOpen}
 	mode="create"
 	onSuccess={() => loadTemplates(true)}
 />

@@ -1,143 +1,71 @@
 package db
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
 
-	"github.com/go-gormigrate/gormigrate/v2"
-	"gorm.io/gorm"
+	"github.com/discohaus/discopanel/internal/db/migrations"
+	"github.com/discohaus/discopanel/pkg/config"
+	"github.com/nickheyer/protogorm/migrate"
 )
 
-func allModels() []any {
-	return []any{
-		&Server{},
-		&ServerConfig{},
-		&Mod{},
-		&IndexedModpack{},
-		&IndexedModpackFile{},
-		&ModpackFavorite{},
-		&ProxyConfig{},
-		&ProxyListener{},
-		&User{},
-		&Role{},
-		&UserRole{},
-		&Session{},
-		&APIToken{},
-		&RegistrationInvite{},
-		&ScheduledTask{},
-		&TaskExecution{},
-		&ModuleTemplate{},
-		&Module{},
-		&SystemSetting{},
-	}
-}
-
+// Proves the schema and applies pending migrations
+// Disabled auto migrate verifies and refuses instead
 func (s *Store) Migrate() error {
-	if err := s.backupDB(); err != nil {
-		return fmt.Errorf("pre-migration backup failed: %w", err)
+	backup := ""
+	if s.cfg.Database.Path != "" && s.cfg.Database.Path != ":memory:" {
+		backup = s.cfg.Database.Path + ".pre-migrate.bak"
 	}
 
-	// Create all tables/columns
-	if err := s.db.AutoMigrate(allModels()...); err != nil {
+	engine := &migrate.Engine{
+		DB:         s.db,
+		Registry:   migrations.Registry,
+		Head:       migrations.Head(),
+		Baseline:   migrations.V2Baseline{},
+		AppVersion: config.AppVersion(),
+		BackupPath: backup,
+		Log:        log.Printf,
+	}
+
+	report, err := engine.Run(context.Background())
+	if err != nil {
 		return fmt.Errorf("schema migration failed: %w", err)
 	}
-
-	m := gormigrate.New(s.db, &gormigrate.Options{
-		TableName:                 "migrations",
-		IDColumnName:              "id",
-		IDColumnSize:              200,
-		UseTransaction:            true,
-		ValidateUnknownMigrations: false,
-	}, migrations())
-
-	if err := m.Migrate(); err != nil {
-		return fmt.Errorf("migration failed: %w", err)
+	if len(report.Pending) > 0 {
+		if !s.cfg.Database.AutoMigrate {
+			return fmt.Errorf("database needs migrations %v, enable database.auto_migrate", report.Pending)
+		}
+		fresh := len(report.Pending) == 1 && report.Pending[0] == "fresh install"
+		if backup != "" && !fresh {
+			os.Remove(backup)
+		}
+		engine.Apply = true
+		report, err = engine.Run(context.Background())
+		if err != nil {
+			return fmt.Errorf("schema migration failed: %w", err)
+		}
+		if len(report.Applied) > 0 && backup != "" {
+			log.Printf("[migrate] Pre migration backup kept at %s", backup)
+		}
+	}
+	if report.Fresh {
+		log.Println("[migrate] Fresh schema created at head")
+	}
+	for _, name := range report.Applied {
+		log.Printf("[migrate] Applied %s", name)
 	}
 
-	if err := seeds(s); err != nil {
-		return fmt.Errorf("seed failed: %w", err)
-	}
-
-	log.Println("[migrate] Migration complete")
-	return nil
-}
-
-func seeds(s *Store) error {
 	for _, seed := range []func() error{
 		s.SeedSystemRoles,
 		s.SeedGlobalSettings,
 	} {
 		if err := seed(); err != nil {
-			return err
+			return fmt.Errorf("seed failed: %w", err)
 		}
 	}
-	return nil
-}
 
-func migrations() []*gormigrate.Migration {
-	return []*gormigrate.Migration{
-		{
-			ID: "20260306_001_retry_backfill_user_roles",
-			Migrate: func(tx *gorm.DB) error {
-				// Find users that have no entry in user_roles
-				var usersWithoutRoles []User
-				if err := tx.Where("id NOT IN (SELECT DISTINCT user_id FROM user_roles)").
-					Order("created_at ASC").
-					Find(&usersWithoutRoles).Error; err != nil {
-					return err
-				}
-
-				if len(usersWithoutRoles) == 0 {
-					return nil
-				}
-
-				var adminCount int64
-				tx.Model(&UserRole{}).Where("role_name = ?", "admin").Count(&adminCount)
-
-				for i, user := range usersWithoutRoles {
-					roleName := "user"
-					if i == 0 && adminCount == 0 {
-						roleName = "admin"
-					}
-					ur := UserRole{
-						ID:       user.ID + "-" + roleName,
-						UserID:   user.ID,
-						RoleName: roleName,
-						Source:   "migration",
-					}
-					if err := tx.Create(&ur).Error; err != nil {
-						return fmt.Errorf("failed to assign role %s to user %s: %w", roleName, user.Username, err)
-					}
-					log.Printf("[migrate] Assigned role '%s' to user '%s'", roleName, user.Username)
-				}
-
-				return nil
-			},
-			Rollback: func(tx *gorm.DB) error {
-				return tx.Where("source = ?", "migration").Delete(&UserRole{}).Error
-			},
-		},
-	}
-}
-
-func (s *Store) backupDB() error {
-	if s.cfg.Database.Path == "" || s.cfg.Database.Path == ":memory:" {
-		return nil
-	}
-
-	var count int
-	row := s.db.Raw("SELECT count(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").Row()
-	if err := row.Scan(&count); err != nil || count == 0 {
-		return nil
-	}
-
-	backupPath := s.cfg.Database.Path + ".pre-migrate.bak"
-	os.Remove(backupPath)
-	if err := s.db.Exec("VACUUM INTO ?", backupPath).Error; err != nil {
-		return fmt.Errorf("VACUUM INTO %s: %w", backupPath, err)
-	}
-
-	log.Printf("[migrate] Database backed up to %s", backupPath)
+	log.Println("[migrate] Schema up to date")
 	return nil
 }

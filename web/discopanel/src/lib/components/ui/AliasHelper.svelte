@@ -2,10 +2,15 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Popover, PopoverContent, PopoverTrigger } from '$lib/components/ui/popover';
 	import { rpcClient } from '$lib/api/rpc-client';
-	import { AliasCategory, type AliasInfo } from '$lib/proto/discopanel/v1/module_pb';
+	import {
+		AliasCategory,
+		AliasCategorySchema,
+		type AliasInfo
+	} from '$lib/proto/discopanel/v1/module_pb';
+	import { enumLabel } from '$lib/proto-meta';
 	import { SvelteMap } from 'svelte/reactivity';
 	import { Braces, Server, Box, Sparkles, Loader2, Check, Copy } from '@lucide/svelte';
-	import { toast } from 'svelte-sonner';
+	import { notify } from '$lib/stores/activity.svelte';
 	import { copyToClipboard } from '$lib/utils/clipboard';
 
 	interface Props {
@@ -49,12 +54,12 @@
 		const success = await copyToClipboard(alias);
 		if (success) {
 			copiedAlias = alias;
-			toast.success('Copied to clipboard', { description: alias });
+			notify.success('Copied to clipboard', { description: alias });
 			setTimeout(() => {
 				copiedAlias = null;
 			}, 2000);
 		} else {
-			toast.error('Failed to copy to clipboard');
+			notify.error('Failed to copy to clipboard');
 		}
 	}
 
@@ -72,16 +77,10 @@
 	}
 
 	function getCategoryLabel(category: AliasCategory): string {
-		switch (category) {
-			case AliasCategory.SERVER:
-				return 'Server';
-			case AliasCategory.MODULE:
-				return 'Module';
-			case AliasCategory.SPECIAL:
-				return 'Special';
-			default:
-				return 'Other';
-		}
+		return (
+			enumLabel(AliasCategorySchema, category) ||
+			enumLabel(AliasCategorySchema, AliasCategory.UNSPECIFIED)
+		);
 	}
 
 	function getCategoryColor(category: AliasCategory): string {
@@ -113,7 +112,7 @@
 <Popover bind:open onOpenChange={handleOpenChange}>
 	<PopoverTrigger>
 		{#if showLabel}
-			<Button variant="outline" size="sm" class="h-7 text-xs gap-1.5">
+			<Button variant="outline" size="sm" class="h-7 gap-1.5 text-xs">
 				<Braces class="h-3.5 w-3.5" />
 				Aliases
 			</Button>
@@ -123,10 +122,10 @@
 			</Button>
 		{/if}
 	</PopoverTrigger>
-	<PopoverContent class="w-96 max-h-96 overflow-y-auto p-0" align="end">
-		<div class="p-3 border-b">
-			<h4 class="font-medium text-sm">Available Aliases</h4>
-			<p class="text-xs text-muted-foreground mt-1">Click to copy an alias to clipboard</p>
+	<PopoverContent class="max-h-96 w-96 overflow-y-auto p-0" align="end">
+		<div class="border-b p-3">
+			<h4 class="text-sm font-medium">Available Aliases</h4>
+			<p class="mt-1 text-xs text-muted-foreground">Click to copy an alias to clipboard</p>
 		</div>
 
 		{#if loading}
@@ -138,7 +137,9 @@
 				{#each [...groupedAliases.entries()] as [category, categoryAliases] (category)}
 					{@const CategoryIcon = getCategoryIcon(category)}
 					<div class="p-2">
-						<div class="flex items-center gap-2 px-2 py-1.5 text-xs font-medium text-muted-foreground">
+						<div
+							class="flex items-center gap-2 px-2 py-1.5 text-xs font-medium text-muted-foreground"
+						>
 							<CategoryIcon class="h-3.5 w-3.5 {getCategoryColor(category)}" />
 							{getCategoryLabel(category)}
 						</div>
@@ -146,27 +147,34 @@
 							{#each categoryAliases as alias (alias.alias)}
 								<button
 									type="button"
-									class="w-full text-left p-2 rounded-md hover:bg-muted/50 transition-colors group"
+									class="group w-full rounded-md p-2 text-left transition-colors hover:bg-muted/50"
 									onclick={() => handleCopy(alias.alias)}
 								>
 									<div class="flex items-center justify-between">
-										<code class="text-xs font-mono text-primary bg-primary/10 px-1.5 py-0.5 rounded group-hover:bg-primary/20">
+										<code
+											class="rounded bg-primary/10 px-1.5 py-0.5 font-mono text-xs text-primary group-hover:bg-primary/20"
+										>
 											{alias.alias}
 										</code>
 										<div class="flex items-center gap-2">
 											{#if alias.exampleValue}
-												<span class="text-xs text-muted-foreground font-mono truncate max-w-25" title={alias.exampleValue}>
+												<span
+													class="max-w-25 truncate font-mono text-xs text-muted-foreground"
+													title={alias.exampleValue}
+												>
 													= {alias.exampleValue}
 												</span>
 											{/if}
 											{#if copiedAlias === alias.alias}
 												<Check class="h-3.5 w-3.5 text-green-500" />
 											{:else}
-												<Copy class="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+												<Copy
+													class="h-3.5 w-3.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100"
+												/>
 											{/if}
 										</div>
 									</div>
-									<p class="text-xs text-muted-foreground mt-1 truncate">
+									<p class="mt-1 truncate text-xs text-muted-foreground">
 										{alias.description}
 									</p>
 								</button>

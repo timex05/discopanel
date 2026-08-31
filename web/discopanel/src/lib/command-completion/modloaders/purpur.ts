@@ -1,5 +1,5 @@
 import type Completions from "../completions";
-import { MOD_LOADER_WIKI_URLS } from "../config";
+import { MOD_LOADER_WIKI_URLS } from "../constants";
 import PaperCompletions from "./paper";
 
 

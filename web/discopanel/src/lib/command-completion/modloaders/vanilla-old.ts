@@ -1,7 +1,7 @@
 import { stripMinecraftColors } from "$lib/utils/command-completion";
 import type { BaseCommand, SuggestionResult } from "../completions";
 import type Completions from "../completions";
-import { MOD_LOADER_WIKI_URLS } from "../config";
+import { MOD_LOADER_WIKI_URLS } from "../constants";
 
 type CmdNode = {
     value: string;

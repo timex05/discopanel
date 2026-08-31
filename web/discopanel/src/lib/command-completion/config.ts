@@ -1,6 +1,6 @@
 import type Completions from '$lib/command-completion/completions';
 import VanillaCompletions from '$lib/command-completion/modloaders/vanilla';
-import { ModLoader } from '$lib/proto/discopanel/v1/common_pb';
+import { ModLoader } from '$lib/proto/discopanel/v1/storage_pb';
 import ForgeCompletion from './modloaders/forge';
 import BukkitCompletions from './modloaders/bukkit';
 import PaperCompletions from './modloaders/paper';
@@ -24,20 +24,8 @@ export interface ModLoaderRule {
     versions: VersionRange[];
 }
 
-export const MOD_LOADER_WIKI_URLS = {
-    MINECRAFT: 'https://minecraft.wiki/Commands',
-    MINECRAFT_BASE: 'https://minecraft.wiki/Commands/',
-
-    BUKKIT: 'https://bukkit.fandom.com/wiki/CraftBukkit_Commands',
-
-    SPIGOT: 'https://www.spigotmc.org/wiki/spigot-commands/',
-
-    PURPUR: 'https://purpurmc.org/docs/purpur/commands/',
-    PURPUR_BASE: 'https://purpurmc.org/docs/purpur/commands/#',
-
-    PAPER: 'https://docs.papermc.io/paper/reference/commands/',
-    PAPER_BASE: 'https://docs.papermc.io/paper/reference/commands/#',
-} as const;
+import { MOD_LOADER_WIKI_URLS } from './constants';
+export { MOD_LOADER_WIKI_URLS };
 
 
 

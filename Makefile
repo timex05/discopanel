@@ -1,11 +1,11 @@
-.PHONY: dev prod clean build build-frontend run deps test fmt lint check help kill-dev image dev-docker dev-auth modules proto proto-clean proto-lint proto-format proto-breaking gen dev-docs
+.PHONY: dev prod clean build build-frontend run deps test fmt lint check help kill-dev image dev-docker dev-auth proto proto-clean proto-lint proto-format proto-breaking gen dev-docs fixtures
 
 DATA_DIR := ./data
 DOCKER_DATA_DIR := /tmp/discopanel
 DB_FILE := $(DATA_DIR)/discopanel.db
 FRONTEND_DIR := web/discopanel
 DISCOPANEL_BIN := build/discopanel
-BUF_IMAGE := bufbuild/buf:latest
+BUF_IMAGE := bufbuild/buf:1.71.0
 BUF_RUN := docker run --rm \
 	--volume "$(shell pwd):/workspace" \
 	--workdir /workspace \
@@ -73,34 +73,6 @@ image:
 	@echo "Building and pushing Docker image..."
 	@bash scripts/build.sh
 
-# Build and push all module Docker images
-modules: gen
-	@echo "Building and pushing module images..."
-	@for dockerfile in docker/Dockerfile.*; do \
-		name=$$(basename $$dockerfile | sed 's/Dockerfile\.//'); \
-		if [ "$$name" != "discopanel" ]; then \
-			echo "Building nickheyer/discopanel-$$name:latest..."; \
-			docker build -t "nickheyer/discopanel-$$name:latest" -f "$$dockerfile" . && \
-			echo "Pushing nickheyer/discopanel-$$name:latest..." && \
-			docker push "nickheyer/discopanel-$$name:latest"; \
-		fi \
-	done
-	@echo "Module builds complete!"
-
-# Build and push a specific module (e.g., make module-status, make module-geyser)
-module-%: gen
-	@if [ ! -f "docker/Dockerfile.$*" ]; then \
-		echo "Error: docker/Dockerfile.$* not found"; \
-		echo "Available modules:"; \
-		ls docker/Dockerfile.* 2>/dev/null | sed 's/docker\/Dockerfile\./  /g' | grep -v discopanel; \
-		exit 1; \
-	fi
-	@echo "Building nickheyer/discopanel-$*:latest..."
-	@docker build -t "nickheyer/discopanel-$*:latest" -f "docker/Dockerfile.$*" .
-	@echo "Pushing nickheyer/discopanel-$*:latest..."
-	@docker push "nickheyer/discopanel-$*:latest"
-	@echo "Module $* build complete!"
-
 # Clean development data
 clean:
 	@echo "Cleaning development data..."
@@ -161,16 +133,25 @@ lint: proto-lint
 check:
 	@echo "Type checking frontend..."
 	cd $(FRONTEND_DIR) && npm run check
+	@echo "Checking for private repo imports..."
+	@if grep -rn --include="*.go" '"github.com/discohaus/discoruntime[/"]\|"github.com/discohaus/discomodule[/"]' cmd internal pkg; then \
+		echo "panel code must never import private repos"; exit 1; fi
 
 proto:
+	@echo "Materializing protogorm annotation schema..."
+	go tool protogorm -options proto
 	@echo "Generating protocol buffer code (using Docker)..."
-	$(BUF_RUN) generate
+	$(BUF_RUN) generate --exclude-path proto/protogorm
+	@echo "Injecting gorm tags and generating db wrappers..."
+	$(BUF_RUN) build -o - | go tool protogorm -support pkg/proto -store internal/db/store.gen.go:db -inject pkg/proto -spec internal/db/migrations/head.snapshot.json
+	@test -f internal/db/migrations/0001_v2_intake.snapshot.json || cp internal/db/migrations/head.snapshot.json internal/db/migrations/0001_v2_intake.snapshot.json
 	@echo "Proto generation complete!"
 
 proto-clean:
 	@echo "Cleaning generated proto files..."
 	rm -rf pkg/proto
 	rm -rf web/discopanel/src/lib/proto
+	rm -rf proto/protogorm
 	@echo "Proto files cleaned!"
 
 proto-lint:
@@ -179,6 +160,16 @@ proto-lint:
 	@echo "Proto linting complete!"
 
 gen: proto-clean proto
+	go generate ./...
+
+# Boots every released panel, seeds it, captures its database
+fixtures:
+	@echo "Capturing migration fixtures from every release..."
+	cd test/migrations && go run ./fixturegen -out fixtures $(FIXTURE_ARGS)
+
+# Runs migration matrix
+test-migrations:
+	go test -tags migrations ./test/migrations/...
 
 proto-format:
 	@echo "Formatting proto files (using Docker)..."
@@ -202,7 +193,6 @@ help:
 	@echo "  make image          - Build and push Docker image to :dev tag"
 	@echo "  make dev-docker     - Build and run Docker container locally (no cache)"
 	@echo "  make dev-auth       - Build and run with OIDC provider (Keycloak)"
-	@echo "  make modules        - Build and push all module Docker images"
 	@echo "  make clean          - Remove data directory and build artifacts"
 	@echo "  make kill-dev       - Kill any orphaned dev processes"
 	@echo "  make deps           - Install all dependencies"
@@ -211,6 +201,7 @@ help:
 	@echo "  make lint           - Lint code"
 	@echo "  make check          - Type check frontend"
 	@echo "  make gen            - Clean and regenerate proto code (via Docker)"
+	@echo "  make fixtures       - Capture migration fixtures from every release (FIXTURE_ARGS=-force)"
 	@echo "  make proto          - Generate Go and TypeScript code from proto files (via Docker)"
 	@echo "  make proto-clean    - Remove all generated proto files"
 	@echo "  make proto-lint     - Lint proto files for style and correctness (via Docker)"
