@@ -989,6 +989,12 @@ func (s *ServerService) DeleteServer(ctx context.Context, req *connect.Request[v
 		s.proxy.DropOwnerStats(server.Id)
 	}
 
+	s.bus.Emit(ctx, events.Event{
+		Type:     v1.TriggeredEventType_TRIGGERED_EVENT_TYPE_SERVER_DELETE,
+		ServerId: server.Id,
+		Data:     nil,
+	})
+
 	return connect.NewResponse(&v1.DeleteServerResponse{}), nil
 }
 

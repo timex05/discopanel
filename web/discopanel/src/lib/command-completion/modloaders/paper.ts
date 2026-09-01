@@ -13,7 +13,7 @@ export default class PaperCompletions extends BukktitCompletions {
     async initCommands() {
 
         await super.initCommands()
-        await super.initCommandsForNamespace("paper", MOD_LOADER_WIKI_URLS.PAPER_BASE, true);
+        await super.initCommandsForNamespace("paper", MOD_LOADER_WIKI_URLS.PAPER_BASE);
         await super.addCommand('paper', 'paper', `${MOD_LOADER_WIKI_URLS.PAPER_BASE}#paper`);
         
     }

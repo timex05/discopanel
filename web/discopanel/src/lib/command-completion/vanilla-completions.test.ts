@@ -46,7 +46,7 @@ describe('Completions', () => {
 			});
 
 			const result = await completions.getPossibleCompletions('clear ');
-			expect(result).toContain('[<targets>]');
+			expect(result).toContain('<targets>');
 		});
 
 		it('should expose sorted base commands and aliases', async () => {
@@ -94,7 +94,7 @@ describe('Completions', () => {
 			});
 
 			const result = await completions.getPossibleCompletions('clear ');
-			expect(result).toContain('[<targets>]');
+			expect(result).toContain('<targets>');
 		});
 	});
 
@@ -109,9 +109,9 @@ describe('Completions', () => {
 
 			const result = await completions.getPossibleCompletions('advancement grant <targets> from ');
 			expect(result).toContain('<advancement>');
-			expect(commandFunction).toHaveBeenCalledWith('help advancement grant targets ');
-			expect(commandFunction).toHaveBeenCalledWith('help advancement grant targets from ');
-			expect(commandFunction).toHaveBeenCalledWith('help advancement grant targets from advancement ');
+			expect(commandFunction).toHaveBeenCalledWith('help advancement grant');
+			expect(commandFunction).toHaveBeenCalledWith('help advancement grant targets from');
+			expect(commandFunction).toHaveBeenCalledWith('help advancement grant targets from advancement');
 		});
 	});
 
@@ -126,9 +126,23 @@ describe('Completions', () => {
 
 			const result = await completions.getPossibleCompletions('advancement grant <targets> through ');
 			expect(result).toContain('<advancement>');
-			expect(commandFunction).toHaveBeenCalledWith('help advancement grant targets ');
-			expect(commandFunction).toHaveBeenCalledWith('help advancement grant targets through ');
-			expect(commandFunction).toHaveBeenCalledWith('help advancement grant targets through advancement ');
+			expect(commandFunction).toHaveBeenCalledWith('help advancement grant');
+			expect(commandFunction).toHaveBeenCalledWith('help advancement grant targets through');
+			expect(commandFunction).toHaveBeenCalledWith('help advancement grant targets through advancement');
+		});
+  });
+
+	describe('advancement through', () => {
+		it('should handle advancement', async () => {
+			const { completions, commandFunction } = createCompletions({
+				'help': '/advancement (grant|revoke)',
+				'help advancement grant': '/advancement grant <targets> (only|from|until|through|everything)',
+			});
+
+      const result = await completions.getPossibleCompletions('advancement grant ');
+			expect(commandFunction).not.toHaveBeenCalledWith('help advancement grant targets');
+      expect(result).not.toContain('targets');
+			console.log(result)
 		});
 	});
 
@@ -139,9 +153,9 @@ describe('Completions', () => {
 				'help attribute target attribute get': '/attribute target attribute get <attribute> (get|base|modifier)' // cycle detection
 			});
 
-			const result = await completions.getPossibleCompletions('help attribute target attribute get ');
+			const result = await completions.getPossibleCompletions('attribute target attribute get ');
 			expect(result).toHaveLength(0); // No new suggestions, should not loop infinitely
-			expect(commandFunction).toHaveBeenCalledWith('help attribute target attribute get ');
+			expect(commandFunction).toHaveBeenCalledWith('help attribute target attribute get');
 		});
 
 		it('should handle attribute base generically', async () => {
@@ -150,9 +164,9 @@ describe('Completions', () => {
 				'help attribute target attribute base': '/attribute target attribute base <attribute> (get|base|modifier)'
 			});
 
-			const result = await completions.getPossibleCompletions('help attribute target attribute base ');
+			const result = await completions.getPossibleCompletions('attribute target attribute base ');
 			expect(result).toHaveLength(0);
-			expect(commandFunction).toHaveBeenCalledWith('help attribute target attribute base ');
+			expect(commandFunction).toHaveBeenCalledWith('help attribute target attribute base');
 		});
 
 		it('should handle attribute modifier generically', async () => {
@@ -161,9 +175,9 @@ describe('Completions', () => {
 				'help attribute target attribute modifier': '/attribute target attribute modifier <attribute> (get|base|modifier)'
 			});
 
-			const result = await completions.getPossibleCompletions('help attribute target attribute modifier ');
+			const result = await completions.getPossibleCompletions('attribute target attribute modifier ');
 			expect(result).toHaveLength(0);
-			expect(commandFunction).toHaveBeenCalledWith('help attribute target attribute modifier ');
+			expect(commandFunction).toHaveBeenCalledWith('help attribute target attribute modifier');
 		});
 	});
 
@@ -174,9 +188,8 @@ describe('Completions', () => {
 				'help custom first second': '/custom first second <first> <second> <third>'
 			});
 
-			const result = await completions.getPossibleCompletions('help custom first second ');
-			expect(result).toHaveLength(0);
-			expect(commandFunction).toHaveBeenCalledWith('help custom first second ');
+			const result = await completions.getPossibleCompletions('custom first second ');
+			expect(result).toHaveLength(1);
 		});
 	});
 
@@ -186,9 +199,9 @@ describe('Completions', () => {
 			'help locate biome': '/locate biome <biome>'
 		});
 
-		const result = await completions.getPossibleCompletions('help locate biome ');
+		const result = await completions.getPossibleCompletions('locate biome ');
 		expect(result).toContain('<biome>');
-		expect(commandFunction).toHaveBeenCalledWith('help locate biome ');
+		expect(commandFunction).toHaveBeenCalledWith('help locate biome');
 	});
 
 	it('should treat literal->argument repetition as cycle (defaultgamemode)', async () => {
@@ -197,9 +210,9 @@ describe('Completions', () => {
 			'help defaultgamemode gamemode': '/defaultgamemode gamemode <gamemode>'
 		});
 
-		const result = await completions.getPossibleCompletions('help defaultgamemode survival ');
+		const result = await completions.getPossibleCompletions('defaultgamemode survival ');
 		expect(result).toHaveLength(0);
-		expect(commandFunction).toHaveBeenCalledWith('help defaultgamemode gamemode ');
+		expect(commandFunction).toHaveBeenCalledWith('help defaultgamemode gamemode');
 	});
 
 	it('should not probe optionals like [ips|players] for banlist', async () => {
@@ -214,7 +227,7 @@ describe('Completions', () => {
 		expect(result1).toContain('ips');
 		expect(result1).toHaveLength(1);
 		expect(result).toHaveLength(0);
-		expect(commandFunction).toHaveBeenCalledWith('help banlist ips ');
+		expect(commandFunction).not.toHaveBeenCalledWith('help banlist ips');
 	});
 
 	describe('Real values instead of placeholders', () => {
@@ -242,7 +255,7 @@ describe('Completions', () => {
 			const result = await completions.getPossibleCompletions('clear timex05 applea 64 ');
 			// Should not suggest anything since all parameters have been consumed
 			expect(result).toHaveLength(0);
-			expect(commandFunction).toHaveBeenCalledWith('help clear timex05 applea 64');
+			expect(commandFunction).toHaveBeenCalledWith('help clear');
 		});
 	});
 
@@ -362,7 +375,7 @@ describe('Completions', () => {
 			expect(result).toContain('if');
 
 			result = await completions.getPossibleCompletions('execute run ');
-			expect(result).toContain('<command>');
+			expect(result).toContain('execute');
 		});
 	});
 
@@ -426,7 +439,7 @@ describe('Completions', () => {
 
 			const result = await completions.getPossibleCompletions('ride <target> mount ');
 			expect(result).toContain('<vehicle>');
-			expect(commandFunction).toHaveBeenCalledWith('help ride target mount ');
+			expect(commandFunction).toHaveBeenCalledWith('help ride target mount');
 		});
 	});
 

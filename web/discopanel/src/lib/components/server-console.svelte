@@ -6,7 +6,6 @@
 	import { timestampDate } from '@bufbuild/protobuf/wkt';
 	import type { Server, ServerAction } from '$lib/proto/discopanel/v1/storage_pb';
 	import { ServerStatus, ServerActionKindSchema } from '$lib/proto/discopanel/v1/storage_pb';
-	import { ModLoader } from '$lib/proto/discopanel/v1/storage_pb';
 	import { enumLabel } from '$lib/proto-meta';
 	import type { LogEntry } from '$lib/proto/discopanel/v1/server_pb';
 	import {
@@ -31,7 +30,10 @@
 		X,
 		Info,
 		AlertCircle,
-		ExternalLink
+		ExternalLink,
+
+		Search
+
 	} from '@lucide/svelte';
 	import * as Tooltip from '$lib/components/ui/tooltip/index.js';
 	import * as Dialog from '$lib/components/ui/dialog/index.js';
@@ -41,11 +43,13 @@
 	import type { BaseCommand } from '$lib/command-completion/completions';
 	import { ModLoaderSchema } from '$lib/proto/discopanel/v1/storage_pb';
 	import { mode } from 'mode-watcher';
-	import { themedAnsiConverter } from '$lib/ansi-console';
+	import { parseMinecraftColors, themedAnsiConverter } from '$lib/ansi-console';
 	import { statusMeta, isUp, TONE_BG } from '$lib/server-status';
 	import { wsClient } from '$lib/stores/websocket.svelte';
 	import { registerRefresh } from '$lib/stores/refresh';
 	import { copyToClipboard } from '$lib/utils/clipboard';
+	import { Input } from './ui/input';
+	import { SvelteSet } from 'svelte/reactivity';
 
 	let ansiConverter = $derived(themedAnsiConverter(mode.current));
 
@@ -91,7 +95,7 @@
 	]);
 
 	let actionSources = $derived.by(() => {
-		const seen = new Set<string>();
+		const seen = new SvelteSet<string>();
 		for (const a of actions) if (a.source) seen.add(a.source);
 		return [...seen].sort();
 	});
@@ -386,6 +390,24 @@
 	let cmdDropdown = $state<HTMLElement | null>(null);
 	let commandDocsUrl = $state<string | undefined>(undefined);
 	let cmdValid = $state(true);
+	let searchQuery = $state('');
+	let selectedCommand = $state<typeof baseCmds[number] | null>(null);
+
+	let filteredCmds = $derived(
+    	baseCmds
+        	.filter((cmd) => cmd.name.toLowerCase().includes(searchQuery.toLowerCase()))
+        	.sort((a, b) => a.name.localeCompare(b.name))
+	);
+
+	$effect(() => {
+        if (filteredCmds.length > 0) {
+            if (!selectedCommand || !filteredCmds.some((c) => c.name === selectedCommand?.name)) {
+                selectedCommand = filteredCmds[0];
+            }
+        } else {
+            selectedCommand = null;
+        }
+    });
 
 	let oldStatus = server.status;
 	$effect(() => {
@@ -430,13 +452,13 @@
 		});
 	});
 
-	function getCommandCompletionAvailabilityLabel() {
-		if (forceDisabled) return 'Unavailable';
-		if (server.status === ServerStatus.STARTING) return 'Server is starting...';
-		if (server.status !== ServerStatus.RUNNING && server.status !== ServerStatus.UNHEALTHY)
-			return 'Server must be running.';
-		return completions ? 'Available' : 'Loading...';
-	}
+	// function getCommandCompletionAvailabilityLabel() {
+	// 	if (forceDisabled) return 'Unavailable';
+	// 	if (server.status === ServerStatus.STARTING) return 'Server is starting...';
+	// 	if (server.status !== ServerStatus.RUNNING && server.status !== ServerStatus.UNHEALTHY)
+	// 		return 'Server must be running.';
+	// 	return completions ? 'Available' : 'Loading...';
+	// }
 
 	async function sendSilentCommandWithReturn(cmd: string): Promise<string> {
 		const request = create(SendCommandRequestSchema, {
@@ -871,7 +893,7 @@
 								<Info class="size-3.5" />
 							</Button>
 						</Tooltip.Trigger>
-						<Tooltip.Content>Command completion info</Tooltip.Content>
+						<Tooltip.Content>Available Commands</Tooltip.Content>
 					</Tooltip.Root>
 					<Tooltip.Root>
 						<Tooltip.Trigger>
@@ -1014,7 +1036,7 @@
 								: entry.level}
 						>
 							<!-- eslint-disable-next-line svelte/no-at-html-tags -->
-							{@html ansiConverter.toHtml(entry.message)}
+							{@html ansiConverter.toHtml(parseMinecraftColors(entry.message))}
 						</div>
 					{/each}
 				</div>
@@ -1107,140 +1129,163 @@
 </div>
 
 <Dialog.Root bind:open={showCmdCInfo}>
-	<Dialog.Content class="max-w-2xl max-h-[90vh] overflow-y-auto">
-		<Dialog.Header>
-			<Dialog.Title>Command Completion</Dialog.Title>
-			<Dialog.Description>
-				{forceDisabled
-					? 'Command completion is disabled on this server.'
-					: 'Browse the available base commands and open the docs.'}
-			</Dialog.Description>
-		</Dialog.Header>
+    <Dialog.Content 
+    style="width: 80vw !important; max-width: 1600px !important;" 
+    class="h-[85vh] flex flex-col p-6 overflow-hidden"
+>
+        <Dialog.Header class="shrink-0">
+            <Dialog.Title>Available Commands</Dialog.Title>
+            <Dialog.Description>
+                {#if forceDisabled}
+                    No commands loaded.
+				{:else}
+                    Browse the available commands and open the documentation.
+					<p class="text-sm italic">Note: There might be more commands available than shown here, depending on the server configuration and installed mods/plugins.</p>
+				{/if}
+            </Dialog.Description>
+        </Dialog.Header>
 
-		<div class="space-y-4 py-4">
-			<div
-				class="grid gap-2 rounded-lg border border-terminal-foreground/15 bg-terminal-foreground/4 p-4 sm:grid-cols-3"
-			>
-				<div>
-					<p class="text-xs uppercase tracking-wide text-terminal-foreground/50">Modloader</p>
-					<p class="mt-1 text-sm text-terminal-foreground">
-						{enumLabel(ModLoaderSchema, server.modLoader)}
-					</p>
-				</div>
-				<div>
-					<p class="text-xs uppercase tracking-wide text-terminal-foreground/50">Version</p>
-					<p class="mt-1 text-sm text-terminal-foreground">{server.mcVersion}</p>
-				</div>
-				<div>
-					<p class="text-xs uppercase tracking-wide text-terminal-foreground/50">Status</p>
-					<p
-						class="mt-1 text-sm font-medium {forceDisabled
-							? 'text-status-danger'
-							: 'text-status-ok'}"
-					>
-						{getCommandCompletionAvailabilityLabel()}
-					</p>
-				</div>
-			</div>
+        <div class="space-y-4 py-2 flex-1 min-h-0 flex flex-col overflow-hidden">
+            <!-- <div class="grid shrink-0 gap-2 rounded-lg border border-terminal-foreground/15 bg-terminal-foreground/4 p-4 sm:grid-cols-3">
+                <div>
+                    <p class="text-xs uppercase tracking-wide text-terminal-foreground/50">Modloader</p>
+                    <p class="mt-1 text-sm text-terminal-foreground">
+                        {enumLabel(ModLoaderSchema, server.modLoader)}
+                    </p>
+                </div>
+                <div>
+                    <p class="text-xs uppercase tracking-wide text-terminal-foreground/50">Version</p>
+                    <p class="mt-1 text-sm text-terminal-foreground">{server.mcVersion}</p>
+                </div>
+                <div>
+                    <p class="text-xs uppercase tracking-wide text-terminal-foreground/50">Status</p>
+                    <p class="mt-1 text-sm font-medium {forceDisabled ? 'text-status-danger' : 'text-status-ok'}">
+                        {getCommandCompletionAvailabilityLabel()}
+                    </p>
+                </div>
+            </div> -->
 
-			{#if forceDisabled}
-				<div class="space-y-2 rounded-lg border border-status-danger/20 bg-status-danger/5 p-4">
-					<div class="flex items-center gap-2 text-sm font-medium text-status-danger">
-						<AlertCircle class="size-4" />
-						Disabled for this server
-					</div>
-					<p class="text-sm text-terminal-foreground/80">
-						Reason: {enumLabel(ModLoaderSchema, server.modLoader)} {server.mcVersion} is not supported.
-						<a
-							href="https://docs.discopanel.app/command-completion/"
-							target="_blank"
-							rel="noopener noreferrer"
-							class="text-blue-400 hover:underline"
-						>
-							View supported Mod Loaders and Minecraft versions.
-						</a>
-					</p>
-				</div>
-			{:else}
-				<div class="space-y-2">
-					<p class="text-sm font-medium text-terminal-foreground">Commands</p>
-					{#if baseCmds.length > 0}
-						<p class="text-sm text-terminal-foreground/60">Click a command to open the docs.</p>
-						<div class="grid max-h-[40vh] gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
-							<Tooltip.Provider delayDuration={1000} skipDelayDuration={0}>
-								{#each baseCmds as baseCommand (baseCommand.name)}
-									{#if baseCommand.description}
-										<Tooltip.Root delayDuration={1000}>
-											<Tooltip.Trigger class="block w-full">
-												{#if baseCommand.url !== ''}
-													<a
-														href={baseCommand.url}
-														target="_blank"
-														rel="external noopener noreferrer"
-														class="inline-flex items-center justify-start w-full rounded-lg border border-terminal-foreground/15 bg-terminal-foreground/4 px-3 py-2 font-mono text-sm text-terminal-foreground transition hover:border-terminal-foreground/30 hover:bg-terminal-foreground/8"
-													>
-														<ExternalLink class="mr-2 size-3 shrink-0" />
-														{baseCommand.name}
-													</a>
-												{:else}
-													<div
-														class="inline-flex items-center justify-start w-full rounded-lg border border-terminal-foreground/10 bg-terminal-foreground/2 px-3 py-2 font-mono text-sm text-terminal-foreground/50"
-													>
-														<div class="w-5 shrink-0"></div>
-														{baseCommand.name}
-													</div>
-												{/if}
-											</Tooltip.Trigger>
-											<Tooltip.Content class="whitespace-pre-line">
-												{baseCommand.description}
-											</Tooltip.Content>
-										</Tooltip.Root>
-									{:else}
-										{#if baseCommand.url !== ''}
-											<a
-												href={baseCommand.url}
-												target="_blank"
-												rel="external noopener noreferrer"
-												class="inline-flex items-center justify-start w-full rounded-lg border border-terminal-foreground/15 bg-terminal-foreground/4 px-3 py-2 font-mono text-sm text-terminal-foreground transition hover:border-terminal-foreground/30 hover:bg-terminal-foreground/8"
-											>
-												<ExternalLink class="mr-2 size-3 shrink-0" />
-												{baseCommand.name}
-											</a>
-										{:else}
-											<div
-												class="inline-flex items-center justify-start w-full rounded-lg border border-terminal-foreground/10 bg-terminal-foreground/2 px-3 py-2 font-mono text-sm text-terminal-foreground/50"
-											>
-												<div class="w-5 shrink-0"></div>
-												{baseCommand.name}
-											</div>
-										{/if}
+            {#if forceDisabled}
+                <div class="space-y-2 rounded-lg border border-status-danger/20 bg-status-danger/5 p-4 shrink-0">
+                    <div class="flex items-center gap-2 text-sm font-medium text-status-danger">
+                        <AlertCircle class="size-4" />
+                        Disabled for this server
+                    </div>
+                    <p class="text-sm text-terminal-foreground/80">
+                        Reason: {enumLabel(ModLoaderSchema, server.modLoader)} {server.mcVersion} is not supported.
+                        <a
+                            href="https://docs.discopanel.app/command-completion/"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            class="text-blue-400 hover:underline"
+                        >
+                            View supported Mod Loaders and Minecraft versions.
+                        </a>
+                    </p>
+                </div>
+            {:else}
+                <div class="relative shrink-0">
+                    <Search class="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-terminal-foreground/50" />
+                    <Input
+                        type="text"
+                        placeholder="Search commands..."
+                        bind:value={searchQuery}
+                        class="pl-9"
+                    />
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-12 gap-4 flex-1 min-h-0 overflow-hidden">
+                    <!-- Linke Spalte: Scrollbare Liste -->
+                    <div class="md:col-span-5 border rounded-lg p-2 overflow-y-auto min-h-0 space-y-1">
+                        {#if filteredCmds.length > 0}
+                            {#each filteredCmds as baseCommand (baseCommand.name)}
+                                <button
+                                    type="button"
+                                    onclick={() => selectedCommand = baseCommand}
+                                    class="w-full text-left px-3 py-2 rounded-md font-mono text-sm transition flex items-center justify-between {selectedCommand?.name === baseCommand.name ? 'bg-terminal-foreground/15 border-terminal-foreground/20 border' : 'hover:bg-terminal-foreground/8'}"
+                                >
+                                    <span class="truncate">{baseCommand.name}</span>
+                                    <ChevronRight class="size-4 text-terminal-foreground/40 shrink-0" />
+                                </button>
+                            {/each}
+                        {:else}
+                            <p class="text-sm text-terminal-foreground/50 p-3 text-center">No commands found.</p>
+                        {/if}
+                    </div>
+
+                    <!-- Rechte Spalte: Command Infos -->
+                    <div class="md:col-span-7 border rounded-lg p-4 flex flex-col justify-between bg-terminal-foreground/2 min-h-0 overflow-hidden">
+                        {#if selectedCommand}
+    					    <div class="space-y-4 overflow-y-auto flex-1 min-h-0 pr-1">
+    					        <div class="flex items-center justify-between pb-3 border-b">
+    					            <h3 class="font-mono font-bold text-xl text-terminal-foreground">
+    					                {selectedCommand.name}
+    					            </h3>
+									{#if !selectedCommand.description}
+										<div class="justify-end shrink-0">
+    					    			    <Button
+    					    			        href={selectedCommand.url || (commandDocsUrl ? commandDocsUrl : undefined)}
+    					    			        target="_blank"
+    					    			        rel="external noopener noreferrer"
+    					    			        size="sm"
+    					    			        disabled={!selectedCommand.url && !commandDocsUrl}
+    					    			    >
+    					    			        <ExternalLink class="size-4" />
+    					    			        Open Documentation
+    					    			    </Button>
+    					    			</div>
 									{/if}
-								{/each}
-							</Tooltip.Provider>
-						</div>
-					{:else}
-						<p class="text-sm text-terminal-foreground/50">No commands loaded yet.</p>
-					{/if}
-				</div>
-			{/if}
+    					        </div>
+							
+    					        {#if selectedCommand.description}
+    					            <div>
+    					                <p class="text-xs uppercase tracking-wide text-terminal-foreground/50 mb-1.5">Description</p>
+    					                <p class="text-sm text-terminal-foreground/80 whitespace-pre-line leading-relaxed">
+    					                    {selectedCommand.description}
+    					                </p>
+    					            </div>
+    					        {/if}
+    					    </div>
+							{#if selectedCommand.description}
+    					    	<div class="pt-3 mt-3 flex justify-end shrink-0 border-t">
+    					    	    <Button
+    					    	        href={selectedCommand.url || (commandDocsUrl ? commandDocsUrl : undefined)}
+    					    	        target="_blank"
+    					    	        rel="external noopener noreferrer"
+    					    	        size="sm"
+    					    	        disabled={!selectedCommand.url && !commandDocsUrl}
+    					    	    >
+    					    	        <ExternalLink class="size-4" />
+    					    	        Open Documentation
+    					    	    </Button>
+    					    	</div>
+							{/if}
+    					{:else}
+    					    <div class="h-full flex items-center justify-center text-terminal-foreground/40 text-sm">
+    					        Select a command to view details
+    					    </div>
+    					{/if}
+                    </div>
+                </div>
+            {/if}
+        </div>
 
-			<div class="flex justify-end gap-2 pt-2">
-				<Button variant="outline" size="sm" onclick={() => (showCmdCInfo = false)}>
-					Close
-				</Button>
-				<Button
-					href={commandDocsUrl ? commandDocsUrl : undefined}
-					target="_blank"
-					rel="noopener noreferrer"
-					size="sm"
-					disabled={!commandDocsUrl}
-				>
-					<ExternalLink class="size-4" />
-					View {enumLabel(ModLoaderSchema, server.modLoader)} Commands
-				</Button>
-			</div>
-		</div>
-	</Dialog.Content>
+        <Dialog.Footer class="gap-2 pt-3 border-t shrink-0">
+            <Button variant="outline" size="sm" onclick={() => (showCmdCInfo = false)}>
+                Close
+            </Button>
+            <Button
+                href={commandDocsUrl ? commandDocsUrl : undefined}
+                target="_blank"
+                rel="noopener noreferrer"
+                size="sm"
+                disabled={!commandDocsUrl}
+            >
+                <ExternalLink class="size-4" />
+                View {enumLabel(ModLoaderSchema, server.modLoader)} Commands
+            </Button>
+        </Dialog.Footer>
+    </Dialog.Content>
 </Dialog.Root>
 
 <style>

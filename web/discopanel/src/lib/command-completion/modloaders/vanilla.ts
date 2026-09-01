@@ -14,12 +14,12 @@ type CmdNode = {
 };
 
 export default class VanillaCompletions implements Completions {
-    private root: CmdNode = { 
-        value: '', 
-        isArgument: false, 
-        isOptional: false, 
-        children: [], 
-        isExpanded: true 
+    private root: CmdNode = {
+        value: '',
+        isArgument: false,
+        isOptional: false,
+        children: [],
+        isExpanded: true
     };
 
     private mappings: Record<string, string[]> = {
@@ -65,9 +65,9 @@ export default class VanillaCompletions implements Completions {
         return c;
     }
 
-    private parseCommandsString(cmdString: string) {        
+    private parseCommandsString(cmdString: string) {
         const parts = cmdString.split('/').map(s => s.trim()).filter(s => s.length > 0);
-        
+
         for (const part of parts) {
             if (part.includes('->')) {
                 // path aliasses (f.e.: "xp -> experience",  "execute at <targets> -> execute")
@@ -82,13 +82,53 @@ export default class VanillaCompletions implements Completions {
         }
     }
 
+    private normalizeTokenValue(token: string): string {
+        return token.replace(/[<>]/g, '').trim().toLowerCase();
+    }
+
+    private hasRepeatedPathCycle(tokens: string[]): boolean {
+        const seen = new Set<string>();
+        let repeated = 0;
+
+        for (const token of tokens) {
+            const normalized = this.normalizeTokenValue(token);
+            if (!normalized || normalized === 'or') continue;
+
+            if (seen.has(normalized)) {
+                repeated += 1;
+                if (repeated >= 2) return true;
+            } else {
+                seen.add(normalized);
+            }
+        }
+
+        return false;
+    }
+
+    private hasRepeatedHelpCycle(helpSyntax: string): boolean {
+        const parts = helpSyntax
+            .split('/')
+            .map(part => part.trim())
+            .filter(Boolean);
+
+        for (const part of parts) {
+            const tokens = part.split(/\s+/).filter(Boolean);
+            if (tokens.length > 1 && this.hasRepeatedPathCycle(tokens)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private addSequenceToTree(parent: CmdNode, tokens: string[], aliasTarget?: string) {
         if (tokens.length === 0) return;
-        
+        if (this.hasRepeatedPathCycle(tokens)) return;
+
         const currentTokenGroup = this.parseTokenGroup(tokens[0]);
         const remainingTokens = tokens.slice(1);
-        
-        
+
+
         for (const t of currentTokenGroup) {
 
             let child = parent.children.find(c => c.value === t.value);
@@ -140,24 +180,39 @@ export default class VanillaCompletions implements Completions {
     }
 
     private async expandNodeIfNeeded(node: CmdNode, pathStr: string) {
-        if (node.children.length === 0 && !node.isExpanded && node !== this.root) {
-            if (node.aliasFor) {
-                // handle alias
-                const targetNode = this.root.children.find(c => c.value === node.aliasFor);
-                if (targetNode) {
-                    await this.expandNodeIfNeeded(targetNode, targetNode.value);
-                    node.children = targetNode.children;
-                }
-                node.isExpanded = true;
-            } else if (!node.isOptional) {
-                // call HelpProvider
-                const helpSyntax = await this.helpProvider(pathStr);
-                if (helpSyntax && helpSyntax.trim().length > 0) {
-                    this.parseCommandsString(helpSyntax);
-                }
-                node.isExpanded = true;
-            }
-        }
+      if (node.children.length === 0 && !node.isExpanded && node !== this.root) {
+          if (node.aliasFor) {
+              // handle alias
+              const targetNode = this.root.children.find(c => c.value === node.aliasFor);
+              if (targetNode) {
+                  await this.expandNodeIfNeeded(targetNode, targetNode.value);
+                  node.children = targetNode.children;
+              }
+              // Nach Alias-Auflösung nur expandieren, wenn wirklich keine Kinder mehr nachkommen
+              if (node.children.length === 0) {
+                  node.isExpanded = true;
+              }
+          } else if (!node.isOptional) {
+              // call HelpProvider
+              const helpSyntax = await this.helpProvider(pathStr);
+              if (helpSyntax && helpSyntax.trim().length > 0) {
+                  if (this.hasRepeatedHelpCycle(helpSyntax)) {
+                      node.children = [];
+                      node.isExpanded = true;
+                      return;
+                  }
+
+                  // Neue Kinder werden hier durch parseCommandsString an den Baum (oder den Node) angehängt
+                  this.parseCommandsString(helpSyntax);
+              }
+
+              // Erst JETZT prüfen: Wurden durch helpSyntax neue Kinder hinzugefügt?
+              // Wenn weiterhin keine Kinder existieren, sind wir am Ende des Commands.
+              if (node.children.length === 0) {
+                  node.isExpanded = true;
+              }
+          }
+      }
     }
 
     public async getBaseCommands(): Promise<BaseCommand[]> {
@@ -166,16 +221,16 @@ export default class VanillaCompletions implements Completions {
                 name: child.value,
                 url: `${MOD_LOADER_WIKI_URLS.MINECRAFT_BASE}${child.value}`,
                 description: ``
-            }];        
+            }];
         }).sort((a, b) => a.name.localeCompare(b.name));
     }
 
     public async isCommandValid(command: string): Promise<boolean> {
-        if(command === '') return true; 
+        if(command === '') return true;
         if(command.endsWith(' ')) return false;
         const rawTokens = command.split(' ');
         const inputTokens: string[] = [];
-        
+
         for (let i = 0; i < rawTokens.length; i++) {
             if (rawTokens[i] !== '' || i === rawTokens.length - 1) {
                 inputTokens.push(rawTokens[i]);
@@ -194,7 +249,7 @@ export default class VanillaCompletions implements Completions {
 
         for (let i = 0; i < inputTokens.length; i++) {
             const token = inputTokens[i];
-            
+
             for (const path of currentPaths) {
                 await this.expandNodeIfNeeded(path.node, path.pathStr);
             }
@@ -215,9 +270,9 @@ export default class VanillaCompletions implements Completions {
                     }
                 }
             }
-            
+
             currentPaths = nextPaths;
-            
+
             if (currentPaths.length === 0) {
                 return false;
             }
@@ -225,11 +280,11 @@ export default class VanillaCompletions implements Completions {
 
         for (const path of currentPaths) {
             await this.expandNodeIfNeeded(path.node, path.pathStr);
-            
+
             if (path.node.children.length === 0) {
-                return true; 
+                return true;
             }
-            
+
             const canEndHere = path.node.children.some(child => child.isOptional);
             if (canEndHere) {
                 return true;
@@ -242,8 +297,8 @@ export default class VanillaCompletions implements Completions {
     public async getPossibleCompletions(input: string): Promise<SuggestionResult[]> {
         const rawTokens = input.split(' ');
         const tokens: string[] = [];
-        if(input.startsWith(' ')) return []; 
-        
+        if(input.startsWith(' ')) return [];
+
         for (let i = 0; i < rawTokens.length; i++) {
             if (rawTokens[i] !== '' || i === rawTokens.length - 1) {
                 tokens.push(rawTokens[i]);
@@ -255,7 +310,7 @@ export default class VanillaCompletions implements Completions {
         for (let i = 0; i < tokens.length; i++) {
             const token = tokens[i];
             const isLast = i === tokens.length - 1;
-            
+
             for (const path of currentPaths) {
                 await this.expandNodeIfNeeded(path.node, path.pathStr);
             }
@@ -263,7 +318,7 @@ export default class VanillaCompletions implements Completions {
             if (isLast) {
                 const suggestions: SuggestionResult[] = [];
                 const seen = new Set<string>();
-                
+
                 for (const path of currentPaths) {
                     for (const child of path.node.children) {
                         if (child.isArgument || child.value.startsWith(token)) {
@@ -297,11 +352,11 @@ export default class VanillaCompletions implements Completions {
                             value: player,
                             isArgument: true,
                             isOptional: suggestion.isOptional
-                        })));    
+                        })));
                     }
                 }
                 return [...suggestions, ...mappingsToAppend].sort((a, b) => {
-                    if (a.isArgument) return -1; 
+                    if (a.isArgument) return -1;
                     return a.value.localeCompare(b.value)
                 });
             } else {
@@ -321,7 +376,7 @@ export default class VanillaCompletions implements Completions {
                     }
                 }
                 currentPaths = nextPaths;
-                
+
                 if (currentPaths.length === 0) {
                     return [];
                 }

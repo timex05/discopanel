@@ -15,7 +15,7 @@ import (
 	"github.com/discohaus/discopanel/pkg/mcconsole"
 
 	v1 "github.com/discohaus/discopanel/pkg/proto/discopanel/v1"
-	"github.com/jltobler/go-rcon"
+	"github.com/discohaus/discopanel/pkg/rcon"
 )
 
 var (
@@ -68,12 +68,12 @@ type rconResult struct {
 
 func SendCommand(ctx context.Context, RCONHost string, RCONPort int, RCONPassword string, command string) (string, error) {
 	// initialize Client
-	rconClient := rcon.NewClient(fmt.Sprintf("rcon://%s:%d", RCONHost, RCONPort), RCONPassword)
+	rconClient := rcon.NewClient(RCONHost, RCONPort, RCONPassword, logger.New())
 
 	// run Command in a goroutine to allow for timeout handling
 	resultCh := make(chan rconResult, 1)
 	go func() {
-		output, sendErr := rconClient.Send(command)
+		output, sendErr := rconClient.Execute(command)
 		resultCh <- rconResult{output: output, err: sendErr}
 	}()
 

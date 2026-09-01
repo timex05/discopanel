@@ -73,7 +73,7 @@ export default class BukktitCompletions implements Completions {
 
     async initCommands() {
         await this.initCommandsForNamespace("minecraft", MOD_LOADER_WIKI_URLS.MINECRAFT_BASE);
-        await this.initCommandsForNamespace("bukkit", MOD_LOADER_WIKI_URLS.BUKKIT, false);
+        await this.initCommandsForNamespace("bukkit", MOD_LOADER_WIKI_URLS.BUKKIT, true);
         await this.initAliases();
         
     }
@@ -132,7 +132,7 @@ export default class BukktitCompletions implements Completions {
         }
     }
 
-    async initCommandsForNamespace(namespace: string, baseUrl: string, staticUrl: boolean = true) {
+    async initCommandsForNamespace(namespace: string, baseUrl: string, staticUrl: boolean = false) {
         const helpOutput = await this.helpProvider(`help ${namespace}`);
         const firstLine = helpOutput.split('\n')[0];
 
@@ -192,7 +192,7 @@ export default class BukktitCompletions implements Completions {
 
             return {
                 name: cmd,
-                url: `${baseUrl}${staticUrl ? cmd : ""}`,
+                url: `${baseUrl}${staticUrl ? "" : cmd}`,
                 description: cleanDescription
             };
         });
