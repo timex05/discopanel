@@ -28,6 +28,7 @@ message AgentMessage {
     TickThreadSample tick_thread_sample = 10;
     FatalError fatal_error = 11;
     CaptureArmed capture_armed = 12;
+    CommandCompletionResponse command_completion_response = 13;
   }
 }
 
@@ -39,6 +40,7 @@ message PanelMessage {
     ChatMessage chat_message = 2;
     ExitAck exit_ack = 3;
     ThreadDumpRequest thread_dump_request = 4;
+    CommandCompletionRequest command_completion_request = 5;
   }
 }
 
@@ -294,4 +296,25 @@ message ChatMessage {
 message ExitAck {
   // Echoes exited_at_unix_ms of the recorded report
   int64 exited_at_unix_ms = 1;
+}
+
+// Requests suggestions
+message CommandCompletionRequest {
+  string request_id = 1;
+  string command = 2;
+}
+
+// A token parsed from a command string
+message CommandToken {
+  string text = 1;
+  bool is_optional = 2;
+  bool is_argument = 3;
+  bool is_static = 4;
+  bool is_player = 5;
+}
+
+// Returns suggestions
+message CommandCompletionResponse {
+  string request_id = 1;
+  repeated CommandToken tokens = 2;
 }

@@ -10,7 +10,6 @@ import (
 
 	"github.com/discohaus/discopanel/internal/auth"
 	"github.com/discohaus/discopanel/internal/command"
-	cc "github.com/discohaus/discopanel/internal/command-completion"
 	storage "github.com/discohaus/discopanel/internal/db"
 	"github.com/discohaus/discopanel/internal/docker"
 	"github.com/discohaus/discopanel/internal/metrics"
@@ -51,7 +50,7 @@ type Hub struct {
 	sender      *command.Sender
 	metrics     *metrics.Collector
 	rec         *metrics.Recorder
-	completion  *cc.Completion
+	agent       *metrics.Hub
 
 	upgrader websocket.Upgrader
 
@@ -84,7 +83,7 @@ type Client struct {
 }
 
 // Creates a new WebSocket hub
-func NewHub(logStreamer *logger.LogStreamer, authManager *auth.Manager, enforcer *rbac.Enforcer, store *storage.Store, docker *docker.Client, sender *command.Sender, metricsCollector *metrics.Collector, bus *events.Bus, rec *metrics.Recorder, log *logger.Logger, completion *cc.Completion) *Hub {
+func NewHub(logStreamer *logger.LogStreamer, authManager *auth.Manager, enforcer *rbac.Enforcer, store *storage.Store, docker *docker.Client, sender *command.Sender, metricsCollector *metrics.Collector, bus *events.Bus, rec *metrics.Recorder, agentHub *metrics.Hub, log *logger.Logger) *Hub {
 	return &Hub{
 		logStreamer: logStreamer,
 		authManager: authManager,
@@ -95,7 +94,7 @@ func NewHub(logStreamer *logger.LogStreamer, authManager *auth.Manager, enforcer
 		sender:      sender,
 		metrics:     metricsCollector,
 		rec:         rec,
-		completion:  completion,
+		agent:       agentHub,
 		upgrader: websocket.Upgrader{
 			// Same-origin check blocks cross-site hijack, non-browser clients pass through
 			CheckOrigin: func(r *http.Request) bool {
@@ -508,26 +507,16 @@ func (c *Client) handleCommandCompletions(msg *v1.CommandCompletionsMessage) {
 		}
 	}
 
-	ctx := context.Background()
-	tokens, err := c.hub.completion.GetCompletion(ctx, msg.ServerId, msg.Command)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	resp, err := c.hub.agent.RequestCommandCompletion(ctx, msg.ServerId, msg.Command)
 	if err != nil {
-		c.hub.log.Warn("Failed to get WS completions for server %s: %v", msg.ServerId, err)
+		c.hub.log.Debug("Failed to get WS completions for server %s: %v", msg.ServerId, err)
 		c.sendCommandCompletionsResult(msg.ServerId, nil)
 		return
 	}
 
-	pbTokens := make([]*v1.CommandToken, 0, len(tokens))
-	for _, t := range tokens {
-		pbTokens = append(pbTokens, &v1.CommandToken{
-			Text:       t.Text,
-			IsOptional: t.IsOptional,
-			IsArgument: t.IsArgument,
-			IsStatic:   t.IsStatic,
-			IsPlayer:   t.IsPlayer,
-		})
-	}
-
-	c.sendCommandCompletionsResult(msg.ServerId, pbTokens)
+	c.sendCommandCompletionsResult(msg.ServerId, metrics.ToV1CommandTokens(resp.GetTokens()))
 }
 
 func (c *Client) sendCommandCompletionsResult(serverId string, tokens []*v1.CommandToken) {

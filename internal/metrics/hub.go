@@ -15,6 +15,7 @@ import (
 	agentv1 "github.com/discohaus/discopanel/pkg/proto/discopanel/agent/v1"
 	v1 "github.com/discohaus/discopanel/pkg/proto/discopanel/v1"
 	"github.com/discohaus/discopanel/pkg/runtimespec"
+	"github.com/google/uuid"
 )
 
 // Feeds human-readable agent lines into a server's console stream
@@ -59,6 +60,7 @@ type Hub struct {
 
 	mu       sync.Mutex
 	sessions map[string]*Session
+	pending  map[string]chan *agentv1.CommandCompletionResponse
 	sink     ConsoleSink
 }
 
@@ -69,6 +71,7 @@ func NewHub(collector *Collector, bus *events.Bus, rec *Recorder, log *logger.Lo
 		rec:       rec,
 		log:       log,
 		sessions:  make(map[string]*Session),
+		pending:   make(map[string]chan *agentv1.CommandCompletionResponse),
 	}
 }
 
@@ -192,6 +195,88 @@ func (h *Hub) ackExit(ctx context.Context, serverID string, exitedAtUnixMs int64
 	}
 }
 
+// Requests command suggestions from the agent and waits for its response
+func (h *Hub) RequestCommandCompletion(ctx context.Context, serverID, command string) (*agentv1.CommandCompletionResponse, error) {
+	if command == "" {
+		return nil, fmt.Errorf("command is empty")
+	}
+
+	h.mu.Lock()
+	sess := h.sessions[serverID]
+	h.mu.Unlock()
+	if sess == nil {
+		return nil, fmt.Errorf("no agent session for server %s", serverID)
+	}
+
+	respCh := make(chan *agentv1.CommandCompletionResponse, 1)
+	requestID := uuid.New().String()
+
+	h.mu.Lock()
+	h.pending[requestID] = respCh
+	h.mu.Unlock()
+	defer func() {
+		h.mu.Lock()
+		delete(h.pending, requestID)
+		h.mu.Unlock()
+	}()
+
+	err := h.sendToAgent(ctx, serverID, &agentv1.PanelMessage{Payload: &agentv1.PanelMessage_CommandCompletionRequest{
+		CommandCompletionRequest: &agentv1.CommandCompletionRequest{
+			RequestId: requestID,
+			Command:   command,
+		},
+	}})
+if err != nil {
+		return nil, err
+	}
+
+	select {
+	case resp := <-respCh:
+		return resp, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-sess.closed:
+		return nil, fmt.Errorf("agent session for server %s is closing", serverID)
+	}
+}
+
+// Hands a completion response to the pending request that asked for it
+func (h *Hub) resolveCommandCompletion(resp *agentv1.CommandCompletionResponse) {
+	if resp == nil || resp.GetRequestId() == "" {
+		return
+	}
+	h.mu.Lock()
+	ch := h.pending[resp.GetRequestId()]
+	if ch != nil {
+		delete(h.pending, resp.GetRequestId())
+	}
+	h.mu.Unlock()
+	if ch != nil {
+		select {
+		case ch <- resp:
+		default:
+		}
+	}
+}
+
+// Converts agent completion tokens to the panel API shape
+func ToV1CommandTokens(in []*agentv1.CommandToken) []*v1.CommandToken {
+	out := make([]*v1.CommandToken, 0, len(in))
+	for _, t := range in {
+		if t == nil {
+			continue
+		}
+		out = append(out, &v1.CommandToken{
+			Text:       t.GetText(),
+			IsOptional: t.GetIsOptional(),
+			IsArgument: t.GetIsArgument(),
+			IsStatic:   t.GetIsStatic(),
+			IsPlayer:   t.GetIsPlayer(),
+		})
+	}
+	return out
+}
+
 // Routes one agent telemetry message to the collector and bus
 func (h *Hub) HandleMessage(ctx context.Context, serverID string, msg *agentv1.AgentMessage) {
 	switch p := msg.GetPayload().(type) {
@@ -266,6 +351,9 @@ func (h *Hub) HandleMessage(ctx context.Context, serverID string, msg *agentv1.A
 
 	case *agentv1.AgentMessage_Roster:
 		h.collector.ApplyAgentRoster(serverID, p.Roster.GetOnlinePlayers())
+
+	case *agentv1.AgentMessage_CommandCompletionResponse:
+		h.resolveCommandCompletion(p.CommandCompletionResponse)
 
 	}
 }
