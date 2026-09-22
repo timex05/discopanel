@@ -199,6 +199,7 @@
 	onDestroy(() => {
 		untrack(() => cleanupWebSocket());
 		if (commandTimeout) clearTimeout(commandTimeout);
+		if (completionFallback) clearTimeout(completionFallback);
 	});
 
 	// Follow the active tab to hold the subscription
@@ -231,6 +232,9 @@
 				expandedId = null;
 				command = '';
 				unseenLines = 0;
+				completionTokens = [];
+				showCompletions = false;
+				pendingCompletionCmd = '';
 
 				if (active) {
 					wsClient.subscribe(currentServerId, tailLines);
@@ -372,13 +376,30 @@
 
 	let completionSupported = $state(false);
 
+	// The parent reloads the server every 5s with a fresh object, so reading
+	// server.id alone would refire this effect (and its RPC) on every poll.
+	// Guard by value: re-check only for a new server, a status change, or an
+	// explicit recheck request. availabilityNonce is bumped at most once per
+	// command text while unsupported (see the completion effect below).
+	let lastAvailabilityKey = '';
+	let lastAvailabilityNonce = -1;
+	let lastRecheckCmd = '';
+	let availabilityNonce = $state(0);
+
 	$effect(() => {
-		const serverId = server.id;
-		if (!serverId) {
+		const nonce = availabilityNonce;
+		const sid = server.id;
+		if (!sid) {
 			completionSupported = false;
 			return;
 		}
-		const req = create(IsCommandCompletionAvailableRequestSchema, { id: serverId });
+		const key = `${sid}|${server.status}`;
+		const keyChanged = key !== lastAvailabilityKey;
+		if (!keyChanged && nonce === lastAvailabilityNonce) return;
+		lastAvailabilityKey = key;
+		lastAvailabilityNonce = nonce;
+		if (keyChanged) lastRecheckCmd = '';
+		const req = create(IsCommandCompletionAvailableRequestSchema, { id: sid });
 		rpcClient.server
 			.isCommandCompletionAvailable(req, silentCallOptions)
 			.then((res) => {
@@ -410,22 +431,39 @@
 		}
 	}
 
+	// server.id is only read inside untrack() (see fetchCompletions), so parent
+	// polls with a fresh server object never refetch: command, supported,
+	// enabled and canSend are the only reactive triggers left.
 	$effect(() => {
 		const currentCmd = command;
 		if (!completionSupported || !completionEnabled || isNavigatingHistory) {
 			completionTokens = [];
 			showCompletions = false;
+			// Agent away but the user typed: one cheap availability re-check
+			// per command text, so completions resume once the agent is back.
+			// Never fetches, so this cannot loop.
+			if (
+				completionEnabled &&
+				!isNavigatingHistory &&
+				canSend &&
+				currentCmd.trim() &&
+				currentCmd !== lastRecheckCmd
+			) {
+				lastRecheckCmd = currentCmd;
+				availabilityNonce++;
+			}
 			return;
 		}
-		if (!canSend || !currentCmd.trim()) {
+		if (!canSend) {
 			completionTokens = [];
 			showCompletions = false;
 			return;
 		}
-		fetchCompletions(currentCmd);
+		void fetchCompletions(currentCmd);
 	});
 
 	let pendingCompletionCmd = '';
+	let completionFallback: ReturnType<typeof setTimeout> | null = null;
 
 	function handleCompletionResult(tokens: CommandToken[], cmd?: string) {
 		if ((!cmd || cmd === command) && !isNavigatingHistory && completionEnabled) {
@@ -437,15 +475,24 @@
 
 	async function fetchCompletions(cmdToPredict: string) {
 		pendingCompletionCmd = cmdToPredict;
+		// untrack: this runs inside the completion effect; subscribing to the
+		// server prop would refetch on every 5s parent poll.
+		const sid = untrack(() => server.id);
 
 		// Prefer WebSocket
 		if (wsClient.isReady) {
-			const sent = wsClient.sendCommandCompletions(server.id, cmdToPredict);
+			const sent = wsClient.sendCommandCompletions(sid, cmdToPredict);
 			if (sent) {
 				const wsCmd = cmdToPredict;
-				setTimeout(() => {
-					if (pendingCompletionCmd === wsCmd && completionTokens.length === 0) {
-						fetchCompletionsViaRpc(wsCmd);
+				if (completionFallback) clearTimeout(completionFallback);
+				completionFallback = setTimeout(() => {
+					completionFallback = null;
+					if (
+						pendingCompletionCmd === wsCmd &&
+						untrack(() => server.id) === sid &&
+						completionTokens.length === 0
+					) {
+						void fetchCompletionsViaRpc(sid, wsCmd);
 					}
 				}, 500);
 				return;
@@ -453,13 +500,13 @@
 		}
 
 		// Fallback to Connect RPC
-		await fetchCompletionsViaRpc(cmdToPredict);
+		await fetchCompletionsViaRpc(sid, cmdToPredict);
 	}
 
-	async function fetchCompletionsViaRpc(cmdToPredict: string) {
+	async function fetchCompletionsViaRpc(sid: string, cmdToPredict: string) {
 		try {
 			const req = create(GetCommandCompletionsRequestSchema, {
-				id: server.id,
+				id: sid,
 				command: cmdToPredict
 			});
 			const res = await rpcClient.server.getCommandCompletions(req, silentCallOptions);
@@ -470,14 +517,27 @@
 			if (pendingCompletionCmd === cmdToPredict) {
 				completionTokens = [];
 				showCompletions = false;
+				// Agent went away mid-typing: drop the gate so the next
+				// keystroke re-checks availability instead of failing.
+				// No fetch is triggered here, so this cannot loop.
+				completionSupported = false;
 			}
 		}
 	}
 
 	function selectCompletion(token: CommandToken) {
 		const parts = command.split(' ');
-		parts[parts.length - 1] = token.text;
-		command = parts.join(' ');
+		const current = parts[parts.length - 1]
+		if (token.text.startsWith(current)){
+			parts[parts.length - 1] = token.text;
+		} else {
+			parts[parts.length - 1] = current + token.text;
+		}
+		
+
+		// Commands (static tokens) get a trailing space the same way
+		// terminals do, so the argument suggestions show up right away.
+		command = parts.join(' ')
 		showCompletions = false;
 		completionTokens = [];
 		isNavigatingHistory = false;
@@ -502,11 +562,13 @@
 		}
 
 		if (showCompletions && completionTokens.length > 0) {
-			if (e.key === 'ArrowDown') {
+			// Bei leerem Kommando navigieren Pfeiltasten weiterhin im Verlauf
+			const emptyInput = command.trim() === '';
+			if (e.key === 'ArrowDown' && !emptyInput) {
 				e.preventDefault();
 				selectedTokenIndex = (selectedTokenIndex + 1) % completionTokens.length;
 				return;
-			} else if (e.key === 'ArrowUp') {
+			} else if (e.key === 'ArrowUp' && !emptyInput) {
 				e.preventDefault();
 				selectedTokenIndex =
 					(selectedTokenIndex - 1 + completionTokens.length) % completionTokens.length;

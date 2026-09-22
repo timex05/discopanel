@@ -197,10 +197,6 @@ func (h *Hub) ackExit(ctx context.Context, serverID string, exitedAtUnixMs int64
 
 // Requests command suggestions from the agent and waits for its response
 func (h *Hub) RequestCommandCompletion(ctx context.Context, serverID, command string) (*agentv1.CommandCompletionResponse, error) {
-	if command == "" {
-		return nil, fmt.Errorf("command is empty")
-	}
-
 	h.mu.Lock()
 	sess := h.sessions[serverID]
 	h.mu.Unlock()
@@ -267,7 +263,8 @@ func ToV1CommandTokens(in []*agentv1.CommandToken) []*v1.CommandToken {
 			continue
 		}
 		out = append(out, &v1.CommandToken{
-			Text:       t.GetText(),
+			// Commands never carry a leading "/" in the panel console
+			Text:       strings.TrimPrefix(t.GetText(), "/"),
 			IsOptional: t.GetIsOptional(),
 			IsArgument: t.GetIsArgument(),
 			IsStatic:   t.GetIsStatic(),
