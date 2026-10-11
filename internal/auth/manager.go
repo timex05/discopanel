@@ -269,11 +269,16 @@ func (m *Manager) SystemUser() *v1.User {
 
 // Reports whether the context user holds a global grant
 func (m *Manager) Can(ctx context.Context, resource optionsv1.ResourceType, action optionsv1.ActionType) bool {
+	return m.CanFor(ctx, resource, action, "*")
+}
+
+// Reports whether the context user holds a grant for one resource object.
+func (m *Manager) CanFor(ctx context.Context, resource optionsv1.ResourceType, action optionsv1.ActionType, objectID string) bool {
 	user := GetUserFromContext(ctx)
 	if user == nil {
 		return false
 	}
-	allowed, err := m.enforcer.Enforce(user.Roles, resource, action, "*")
+	allowed, err := m.enforcer.Enforce(user.Roles, resource, action, objectID)
 	return err == nil && allowed
 }
 

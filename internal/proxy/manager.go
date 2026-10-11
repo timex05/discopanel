@@ -186,7 +186,8 @@ func (m *Manager) syncHubTargets(ctx context.Context, servers []*v1.Server, list
 		}
 		if t.Running {
 			if ip, err := m.containerIP(ctx, server.ContainerId); err == nil {
-				t.Addr = net.JoinHostPort(ip, strconv.Itoa(docker.DefaultMinecraftPort))
+				cfg, _ := m.store.GetServerProperties(ctx, server.Id)
+				t.Addr = net.JoinHostPort(ip, strconv.Itoa(db.InContainerPort(cfg)))
 			}
 		} else if cfg, err := m.store.GetServerProperties(ctx, server.Id); err == nil {
 			t.Wakeable = propEnabled(cfg, func(c *v1.ServerProperties) *bool { return c.EnableWakeOnConnect })
@@ -1198,12 +1199,15 @@ func (m *Manager) desiredRoute(ctx context.Context, server *v1.Server) (route Ro
 		OwnerKind:     OwnerServer,
 		OwnerID:       server.Id,
 		Protocol:      v1.ModuleProtocol_MODULE_PROTOCOL_MINECRAFT,
-		BackendPort:   docker.DefaultMinecraftPort,
+		BackendPort:   db.InContainerPort(cfg),
 		ProxyProtocol: propEnabled(cfg, func(c *v1.ServerProperties) *bool { return c.EnableProxyProtocol }),
 		PreserveHost:  propEnabled(cfg, func(c *v1.ServerProperties) *bool { return c.ProxyPreserveHostname }),
 		MaxPlayers:    int(server.MaxPlayers),
 		Favicon:       m.routeFavicon(server),
 		McVersion:     server.McVersion,
+	}
+	if cfg != nil && cfg.MaxPlayers != nil {
+		route.MaxPlayers = int(*cfg.MaxPlayers)
 	}
 	if proto, ok := mcproto.ProtocolForVersion(server.McVersion); ok {
 		route.McProtocol = proto

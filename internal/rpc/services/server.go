@@ -561,8 +561,16 @@ func (s *ServerService) CreateServer(ctx context.Context, req *connect.Request[v
 		serverConfig.Level = &importedLevelName
 	}
 
-	// Reflects heap sizing into read-only properties
-	runtimespec.SyncPropertiesMemory(serverConfig, server)
+	// The server memory selection supplies heap defaults, but explicit global
+	// property defaults inherited at creation take precedence.
+	heapDefaults := &v1.ServerProperties{}
+	runtimespec.SyncPropertiesMemory(heapDefaults, server)
+	if serverConfig.InitMemory == nil {
+		serverConfig.InitMemory = heapDefaults.InitMemory
+	}
+	if serverConfig.MaxMemory == nil {
+		serverConfig.MaxMemory = heapDefaults.MaxMemory
+	}
 
 	if err := s.store.UpdateServerProperties(ctx, serverConfig); err != nil {
 		s.log.Error("Failed to update server config with memory settings: %v", err)
@@ -655,9 +663,6 @@ func (s *ServerService) UpdateServer(ctx context.Context, req *connect.Request[v
 
 		if server.Memory != originalMemory || server.MemoryMin != originalMemoryMin || server.MemoryMax != originalMemoryMax {
 			needsRecreation = true
-			if err := s.store.SyncServerPropertiesWithServer(ctx, server); err != nil {
-				s.log.Error("Failed to sync server config memory: %v", err)
-			}
 		}
 	}
 	if msg.ModLoader != v1.ModLoader_MOD_LOADER_UNSPECIFIED && msg.ModLoader != originalModLoader {

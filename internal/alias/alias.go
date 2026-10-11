@@ -64,7 +64,7 @@ func NewContext() *Context {
 // Derived from host fields
 func (ctx *Context) populateComputed() {
 	if ctx.Server != nil {
-		ctx.Server.ContainerPort = int32(models.InContainerPort(ctx.Server))
+		ctx.Server.ContainerPort = int32(models.InContainerPort(ctx.ServerProperties))
 	}
 	if ctx.Config != nil {
 		if ctx.Module != nil && ctx.Module.DataPath == "" {

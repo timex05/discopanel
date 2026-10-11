@@ -352,9 +352,10 @@ func (c *Client) CreateContainer(ctx context.Context, server *v1.Server, serverC
 	// Build environment variables
 	env := buildEnvFromConfig(serverConfig)
 
-	// Proxy servers always use default port internally
+	// The game listens on the port stored in ServerProperties. Server.Port
+	// remains the externally published host port.
 	useProxy := len(server.ProxyHostnames) > 0
-	containerPort := models.InContainerPort(server)
+	containerPort := models.InContainerPort(serverConfig)
 
 	c.log.Debug("Creating container for server %s with image %s", server.Id, imageName)
 

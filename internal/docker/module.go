@@ -224,7 +224,7 @@ func (c *Client) buildModuleEnv(module *v1.Module, server *v1.Server, aliasCtx *
 			fmt.Sprintf("DISCOPANEL_SERVER_ID=%s", server.Id),
 			fmt.Sprintf("DISCOPANEL_SERVER_NAME=%s", server.Name),
 			fmt.Sprintf("DISCOPANEL_SERVER_HOST=discopanel-server-%s", server.Id),
-			fmt.Sprintf("DISCOPANEL_SERVER_PORT=%d", models.InContainerPort(server)),
+			fmt.Sprintf("DISCOPANEL_SERVER_PORT=%d", models.InContainerPort(aliasCtx.ServerProperties)),
 		)
 	}
 	env = append(env,

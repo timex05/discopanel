@@ -3,22 +3,39 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import DefaultProperties from '$lib/components/default-properties.svelte';
+	import SyncServersDialog from '$lib/components/properties/sync-servers-dialog.svelte';
 	import UserSettings from '$lib/components/user-settings.svelte';
 	import RoleSettings from '$lib/components/role-settings.svelte';
 	import NetworkTopology from '$lib/components/network/network-topology.svelte';
 	import AuthSettings from '$lib/components/auth-settings.svelte';
 	import SupportSettings from '$lib/components/support-settings.svelte';
 	import LogsSettings from '$lib/components/logs-settings.svelte';
-	import { PageHeader, EmptyState, TabRail } from '$lib/components/app';
+	import { PageHeader, EmptyState, TabRail, ConfirmDialog } from '$lib/components/app';
+	import {
+		Dialog,
+		DialogContent,
+		DialogDescription,
+		DialogFooter,
+		DialogHeader,
+		DialogTitle
+	} from '$lib/components/ui/dialog';
+	import { Button } from '$lib/components/ui/button';
 	import { Skeleton } from '$lib/components/ui/skeleton';
 	import { registerRefresh } from '$lib/stores/refresh';
 	import { notify } from '$lib/stores/activity.svelte';
-	import { Settings } from '@lucide/svelte';
+	import { Settings, CheckCircle2, XCircle } from '@lucide/svelte';
 	import type { PropertyCategory } from '$lib/proto/discopanel/v1/properties_pb';
-	import { rpcClient } from '$lib/api/rpc-client';
+	import {
+		SyncGlobalSettingsToServersRequestSchema,
+		type SyncServerResult
+	} from '$lib/proto/discopanel/v1/properties_pb';
+	import { create } from '@bufbuild/protobuf';
+	import { rpcClient, rpcErrorMessage } from '$lib/api/rpc-client';
+	import { serversStore } from '$lib/stores/servers';
 	import {
 		authStore,
 		canReadSettings,
+		canUpdateSettings,
 		canReadUsers,
 		canReadRoles,
 		authEnabled
@@ -51,7 +68,15 @@
 	let saving = $state(false);
 	let tabPane = $state<HTMLDivElement | null>(null);
 
+	let syncPickerOpen = $state(false);
+	let syncConfirmOpen = $state(false);
+	let syncResultsOpen = $state(false);
+	let syncTargetIds = $state<string[]>([]);
+	let syncOnlyExplicit = $state(false);
+	let syncResults = $state<SyncServerResult[]>([]);
+
 	let showSettings = $derived($canReadSettings);
+	let canSync = $derived($canUpdateSettings);
 	let showUsers = $derived($canReadUsers && $authEnabled);
 	let showRoles = $derived($canReadRoles && $authEnabled);
 
@@ -119,6 +144,47 @@
 		}
 	}
 
+	function openSyncPicker() {
+		syncPickerOpen = true;
+	}
+
+	function continueToSyncConfirm(serverIds: string[], onlyExplicit: boolean) {
+		syncPickerOpen = false;
+		syncTargetIds = serverIds;
+		syncOnlyExplicit = onlyExplicit;
+		syncConfirmOpen = true;
+	}
+
+	async function runSettingsSync() {
+		try {
+			const response = await rpcClient.properties.syncGlobalSettingsToServers(
+				create(SyncGlobalSettingsToServersRequestSchema, {
+					serverIds: syncTargetIds,
+					onlyExplicit: syncOnlyExplicit
+				})
+			);
+			syncResults = response.results;
+			const failed = syncResults.filter((r) => !r.success).length;
+			if (failed === 0) {
+				notify.success(
+					`Settings synced to ${syncResults.length} ${syncResults.length === 1 ? 'server' : 'servers'}`
+				);
+			} else {
+				notify.warning(`Settings sync finished with ${failed} of ${syncResults.length} failing`);
+			}
+			syncResultsOpen = true;
+		} catch (error) {
+			notify.error(rpcErrorMessage(error, 'Failed to sync settings'));
+			console.error(error);
+		}
+	}
+
+	function closeSyncResults() {
+		syncResultsOpen = false;
+		// Statuses changed by stop/recreate/start, refresh lists elsewhere
+		serversStore.fetchServers(true).catch(() => {});
+	}
+
 	// Fetch once when permission is known
 	let fetchedGlobal = false;
 	$effect(() => {
@@ -161,7 +227,13 @@
 						<Skeleton class="h-72 rounded-lg" />
 					</div>
 				{:else}
-					<DefaultProperties categories={globalConfig} onSave={saveGlobalSettings} {saving} />
+					<DefaultProperties
+						categories={globalConfig}
+						onSave={saveGlobalSettings}
+						{saving}
+						showSync={canSync}
+						onSync={openSyncPicker}
+					/>
 				{/if}
 			{:else}
 				<LogsSettings />
@@ -193,3 +265,57 @@
 		</div>
 	{/if}
 </div>
+
+<SyncServersDialog bind:open={syncPickerOpen} onContinue={continueToSyncConfirm} />
+
+<ConfirmDialog
+	bind:open={syncConfirmOpen}
+	title="Sync defaults to {syncTargetIds.length} {syncTargetIds.length === 1
+		? 'server'
+		: 'servers'}?"
+	description="Servers with changes will be recreated. Running servers will be stopped and started again."
+	confirmLabel="Sync & restart"
+	destructive
+	onConfirm={runSettingsSync}
+/>
+
+<Dialog bind:open={syncResultsOpen}>
+	<DialogContent class="!max-w-lg">
+		<DialogHeader>
+			<DialogTitle>Settings sync results</DialogTitle>
+			<DialogDescription>
+				{syncResults.filter((r) => r.success).length} of {syncResults.length}
+				{syncResults.length === 1 ? 'server' : 'servers'} synced successfully.
+			</DialogDescription>
+		</DialogHeader>
+		<div class="max-h-80 overflow-y-auto rounded-md border">
+			<div class="divide-y">
+				{#each syncResults as result (result.serverId)}
+					<div class="flex items-start gap-3 px-3 py-2.5 text-sm">
+						{#if result.success}
+							<CheckCircle2 class="mt-0.5 size-4 shrink-0 text-status-ok" />
+						{:else}
+							<XCircle class="mt-0.5 size-4 shrink-0 text-destructive" />
+						{/if}
+						<div class="min-w-0 flex-1">
+							<div class="flex flex-wrap items-center gap-x-2">
+								<span class="font-medium">{result.serverName || result.serverId}</span>
+								{#if result.priorStatus || result.finalStatus}
+									<span class="text-xs text-muted-foreground">
+										{result.priorStatus || '?'} → {result.finalStatus || '?'}
+									</span>
+								{/if}
+							</div>
+							{#if !result.success && result.error}
+								<p class="mt-0.5 text-xs text-destructive">{result.error}</p>
+							{/if}
+						</div>
+					</div>
+				{/each}
+			</div>
+		</div>
+		<DialogFooter>
+			<Button onclick={closeSyncResults}>Close</Button>
+		</DialogFooter>
+	</DialogContent>
+</Dialog>

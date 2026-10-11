@@ -36,7 +36,7 @@ func (c *Client) DesiredConfigHash(server *v1.Server, serverConfig *v1.ServerPro
 	}
 
 	useProxy := len(server.ProxyHostnames) > 0
-	w("port", strconv.Itoa(int(server.Port)), strconv.Itoa(models.InContainerPort(server)), strconv.FormatBool(useProxy))
+	w("port", strconv.Itoa(int(server.Port)), strconv.Itoa(models.InContainerPort(serverConfig)), strconv.FormatBool(useProxy))
 	for _, p := range server.AdditionalPorts {
 		w("extra-port", strconv.Itoa(int(p.GetHostPort())), strconv.Itoa(int(p.GetContainerPort())), protometa.Name(p.GetProtocol()), strconv.FormatBool(p.GetProxyEnabled()))
 	}

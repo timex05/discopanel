@@ -37,12 +37,13 @@ func ModuleDataDir(dataDir, moduleID string) string {
 	return filepath.Join(dataDir, "modules", moduleID)
 }
 
-// Port the server listens on inside its container
-func InContainerPort(s *v1.Server) int {
-	if len(s.ProxyHostnames) > 0 {
-		return MinecraftDefaultPort
+// Port the server listens on inside its container. The host port remains
+// owned by Server; an explicitly set server-port property controls the game.
+func InContainerPort(config *v1.ServerProperties) int {
+	if config != nil && config.ServerPort != nil && *config.ServerPort > 0 {
+		return int(*config.ServerPort)
 	}
-	return int(s.Port)
+	return MinecraftDefaultPort
 }
 
 // Fills transient proxy port from listener rows
@@ -202,12 +203,34 @@ func (s *Store) CreateServer(ctx context.Context, server *v1.Server) error {
 	return s.SyncServerPropertiesWithServer(ctx, server)
 }
 
-// Saves the server then re-syncs its properties row
+// Saves the server and mirrors only server fields that actually changed.
+// Unrelated server updates must not undo independently edited properties.
 func (s *Store) UpdateServer(ctx context.Context, server *v1.Server) error {
+	var before v1.Server
+	if err := s.db.WithContext(ctx).Where("id = ?", server.Id).First(&before).Error; err != nil {
+		return err
+	}
 	if err := s.db.WithContext(ctx).Save(server).Error; err != nil {
 		return err
 	}
-	return s.SyncServerPropertiesWithServer(ctx, server)
+	if before.Port == server.Port && before.MaxPlayers == server.MaxPlayers &&
+		before.MemoryMin == server.MemoryMin && before.MemoryMax == server.MemoryMax {
+		return nil
+	}
+	config, err := s.GetServerProperties(ctx, server.Id)
+	if err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		config = s.CreateDefaultServerProperties(server.Id)
+	}
+	if before.MaxPlayers != server.MaxPlayers {
+		config.MaxPlayers = &server.MaxPlayers
+	}
+	if before.MemoryMin != server.MemoryMin || before.MemoryMax != server.MemoryMax {
+		runtimespec.SyncPropertiesMemory(config, server)
+	}
+	return s.UpdateServerProperties(ctx, config)
 }
 
 // Sweeps every child row explicitly, old tables lack live cascades
@@ -427,10 +450,17 @@ func (s *Store) SyncServerPropertiesWithServer(ctx context.Context, server *v1.S
 		}
 	}
 
-	int32Ptr := func(i int32) *int32 { return &i }
-	config.ServerPort = int32Ptr(server.Port)
-	config.MaxPlayers = int32Ptr(server.MaxPlayers)
-	runtimespec.SyncPropertiesMemory(config, server)
+	if config.MaxPlayers == nil {
+		config.MaxPlayers = &server.MaxPlayers
+	}
+	memory := &v1.ServerProperties{}
+	runtimespec.SyncPropertiesMemory(memory, server)
+	if config.InitMemory == nil {
+		config.InitMemory = memory.InitMemory
+	}
+	if config.MaxMemory == nil {
+		config.MaxMemory = memory.MaxMemory
+	}
 
 	return s.UpdateServerProperties(ctx, config)
 }
@@ -449,7 +479,6 @@ func (s *Store) CreateDefaultServerProperties(serverID string) *v1.ServerPropert
 		RconPort:     int32Ptr(25575),
 		Difficulty:   stringPtr("easy"),
 		Mode:         stringPtr("survival"),
-		MaxPlayers:   int32Ptr(20),
 	}
 
 	// Skip global settings lookup when creating global settings
@@ -471,11 +500,7 @@ func (s *Store) CreateDefaultServerProperties(serverID string) *v1.ServerPropert
 			if field.PkgPath != "" {
 				continue
 			}
-			// Server specific fields never inherit
-			if field.Name == "Id" || field.Name == "ServerId" || field.Name == "UpdatedAt" ||
-				field.Name == "RconPassword" ||
-				field.Name == "InitMemory" || field.Name == "MaxMemory" || field.Name == "ServerPort" ||
-				field.Name == "MaxPlayers" {
+			if field.Name == "Id" || field.Name == "ServerId" || field.Name == "UpdatedAt" {
 				continue
 			}
 

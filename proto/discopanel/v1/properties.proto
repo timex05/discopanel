@@ -38,6 +38,20 @@ service PropertiesService {
       action: ACTION_TYPE_UPDATE
     };
   }
+  // Copy saved global defaults into existing servers' properties
+  rpc SyncGlobalSettingsToServers(SyncGlobalSettingsToServersRequest) returns (SyncGlobalSettingsToServersResponse) {
+    option (discopanel.options.v1.perm) = {
+      resource: RESOURCE_TYPE_SETTINGS
+      action: ACTION_TYPE_UPDATE
+    };
+  }
+  // Preview property changes for both sync modes without changing servers
+  rpc PreviewGlobalSettingsSync(PreviewGlobalSettingsSyncRequest) returns (PreviewGlobalSettingsSyncResponse) {
+    option (discopanel.options.v1.perm) = {
+      resource: RESOURCE_TYPE_SETTINGS
+      action: ACTION_TYPE_UPDATE
+    };
+  }
 }
 
 // Single server property
@@ -98,4 +112,54 @@ message UpdateGlobalSettingsRequest {
 // Updated global defaults
 message UpdateGlobalSettingsResponse {
   repeated PropertyCategory categories = 1;
+}
+
+// Servers receiving the global defaults
+message SyncGlobalSettingsToServersRequest {
+  repeated string server_ids = 1;
+  // When true, only global fields that are explicitly set are copied.
+  // When false (default), unset global fields reset the server value.
+  bool only_explicit = 2;
+}
+
+// Per-server outcome of one sync run
+message SyncServerResult {
+  string server_id = 1;
+  string server_name = 2;
+  bool success = 3;
+  string error = 4;
+  string prior_status = 5;
+  string final_status = 6;
+}
+
+// Sync outcome for all requested servers
+message SyncGlobalSettingsToServersResponse {
+  repeated SyncServerResult results = 1;
+}
+
+message PreviewGlobalSettingsSyncRequest {
+  repeated string server_ids = 1;
+}
+
+message SyncPropertyChange {
+  string key = 1;
+  string label = 2;
+  string current_value = 3;
+  bool current_set = 4;
+  string next_value = 5;
+  bool next_set = 6;
+}
+
+message SyncServerPreview {
+  string server_id = 1;
+  string server_name = 2;
+  string error = 3;
+  repeated SyncPropertyChange all_changes = 4;
+  repeated SyncPropertyChange explicit_changes = 5;
+  string all_error = 6;
+  string explicit_error = 7;
+}
+
+message PreviewGlobalSettingsSyncResponse {
+  repeated SyncServerPreview previews = 1;
 }

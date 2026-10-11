@@ -32,8 +32,12 @@ func LoadPropertiesFile(serverDataPath string) (PropertiesFile, error) {
 }
 
 // Saves the server.properties file
-func SavePropertiesFile(serverDataPath string, properties PropertiesFile) error {
+func SavePropertiesFile(serverDataPath string, properties PropertiesFile, removeKeys ...string) error {
 	propertiesPath := filepath.Join(serverDataPath, "server.properties")
+	remove := make(map[string]bool, len(removeKeys))
+	for _, key := range removeKeys {
+		remove[key] = true
+	}
 
 	// Ensure directory exists
 	if err := os.MkdirAll(serverDataPath, 0755); err != nil {
@@ -79,6 +83,9 @@ func SavePropertiesFile(serverDataPath string, properties PropertiesFile) error 
 		parts := strings.SplitN(trimmed, "=", 2)
 		if len(parts) == 2 {
 			key := strings.TrimSpace(parts[0])
+			if remove[key] {
+				continue
+			}
 			if newValue, exists := properties[key]; exists {
 				fmt.Fprintf(writer, "%s=%s\n", key, newValue)
 				updatedKeys[key] = true
@@ -93,7 +100,7 @@ func SavePropertiesFile(serverDataPath string, properties PropertiesFile) error 
 	// New keys append in stable sorted order
 	newKeys := make([]string, 0, len(properties))
 	for key := range properties {
-		if !updatedKeys[key] {
+		if !updatedKeys[key] && !remove[key] {
 			newKeys = append(newKeys, key)
 		}
 	}

@@ -21,6 +21,7 @@ import (
 
 	_ "golang.org/x/image/webp"
 
+	models "github.com/discohaus/discopanel/internal/db"
 	"github.com/discohaus/discopanel/pkg/hub"
 	"github.com/discohaus/discopanel/pkg/indexers"
 	"github.com/discohaus/discopanel/pkg/minecraft"
@@ -74,7 +75,7 @@ func (p *Provisioner) writeServerProperties(server *v1.Server, cfg *v1.ServerPro
 		props["rcon.port"] = "25575"
 	}
 	if _, ok := props["server-port"]; !ok {
-		props["server-port"] = fmt.Sprintf("%d", server.Port)
+		props["server-port"] = fmt.Sprintf("%d", models.InContainerPort(cfg))
 	}
 
 	// Proxied servers admit transfer joins unless explicitly disabled

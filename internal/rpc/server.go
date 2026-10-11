@@ -237,7 +237,7 @@ func (s *Server) readMaxBytes() int {
 func (s *Server) registerServices(mux *http.ServeMux, opts []connect.HandlerOption) {
 	// Create service instances
 	authService := services.NewAuthService(s.store, s.authManager, s.enforcer, s.oidcHandler, s.moduleManager, s.log)
-	propertiesService := services.NewPropertiesService(s.store, s.config, s.docker, s.lifecycle, s.rec, s.log)
+	propertiesService := services.NewPropertiesService(s.store, s.config, s.docker, s.lifecycle, s.authManager, s.rec, s.log)
 	fileService := services.NewFileService(s.store, s.docker, s.uploadManager, s.downloadManager, s.rec, s.log)
 	minecraftService := services.NewMinecraftService(s.store, s.docker, s.log)
 	modService := services.NewModService(s.store, s.docker, s.config, s.uploadManager, s.rec, s.log)

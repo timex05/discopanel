@@ -5,7 +5,7 @@
 	import { Input } from '$lib/components/ui/input';
 	import { Button } from '$lib/components/ui/button';
 	import { notify } from '$lib/stores/activity.svelte';
-	import { Save, RotateCcw, Loader2, Search, X, FileSliders } from '@lucide/svelte';
+	import { Save, RotateCcw, Loader2, Search, X, FileSliders, RefreshCw } from '@lucide/svelte';
 	import { copyToClipboard } from '$lib/utils/clipboard';
 	import type { PropertyCategory, ServerProperty } from '$lib/proto/discopanel/v1/properties_pb';
 	import PropertyField from '$lib/components/properties/property-field.svelte';
@@ -16,9 +16,11 @@
 		categories: PropertyCategory[];
 		onSave: (updates: Record<string, string>) => Promise<void>;
 		saving?: boolean;
+		showSync?: boolean;
+		onSync?: () => void;
 	}
 
-	let { categories, onSave, saving = false }: Props = $props();
+	let { categories, onSave, saving = false, showSync = false, onSync }: Props = $props();
 
 	const form = new PropertiesForm(false);
 
@@ -179,6 +181,25 @@
 		</aside>
 
 		<div class="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
+			{#if showSync && onSync}
+				<div class="flex shrink-0 flex-wrap items-center justify-between gap-2">
+					<p class="text-xs text-muted-foreground">
+						Copy saved defaults into existing servers' properties
+					</p>
+					<Button
+						variant="outline"
+						size="sm"
+						onclick={onSync}
+						disabled={saving || form.dirty}
+						title={form.dirty
+							? 'Save your changes first — sync copies the saved defaults'
+							: 'Copy saved defaults to server properties'}
+					>
+						<RefreshCw class="size-4" />
+						Sync settings
+					</Button>
+				</div>
+			{/if}
 			{#if searching && visibleFieldCount === 0}
 				<div
 					class="flex min-h-0 flex-1 items-center justify-center rounded-xl border bg-card text-sm text-muted-foreground"
